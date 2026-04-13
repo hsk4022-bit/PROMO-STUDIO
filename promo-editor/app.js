@@ -1436,7 +1436,7 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
                 const sc = d.querySelector('.se-contents');
                 if (sc) {
                     const firstSeDiv = sc.querySelector(':scope > .se-div:first-child');
-                    if (firstSeDiv && (firstSeDiv.style.fontSize === '0' || !firstSeDiv.innerHTML.trim())) {
+                    if (firstSeDiv && (parseFloat(firstSeDiv.style.fontSize) === 0 || !firstSeDiv.innerHTML.trim())) {
                         firstSeDiv.innerHTML = heroTag;
                         firstSeDiv.style.fontSize = '0'; firstSeDiv.style.lineHeight = '0';
                         firstSeDiv.style.display = 'block'; // display:none 복원
@@ -3994,7 +3994,12 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
         function buildInlinePopupHtml(exportHtml, popupImagePaths) {
             if (!childPanels.length) return exportHtml;
             popupImagePaths = popupImagePaths || {};
-            const _acColor  = (getById('accentPicker')?.value || '#7c3aed');
+            // accentPicker가 기본값(#888888)일 경우 생성된 HTML에서 accent 색상 직접 추출
+            let _acColor = getById('accentPicker')?.value || '#7c3aed';
+            if (!_acColor || _acColor === '#888888') {
+                const _acMatch = exportHtml.match(/background-color:\s*(#[0-9a-fA-F]{6})/);
+                if (_acMatch) _acColor = _acMatch[1];
+            }
 
             let result = exportHtml;
 
@@ -4003,14 +4008,11 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
                 const imgPath = popupImagePaths[id];
 
                 const layerId = '__popup_' + id + '__';
-                // 오버레이: se-contents 기준 fixed 딤드 + 버튼 근처에 팝업 표시
+                // 오버레이: se-contents 기준 fixed 딤드
                 const _overlayJs = [
                     `var _cont=document.querySelector('.se-contents')||document.querySelector('div[style*=max-width]')||document.documentElement;`,
                     `var _cr=_cont.getBoundingClientRect();`,
-                    `var _br=this.getBoundingClientRect();`,
-                    `d.style='position:fixed;top:0;left:'+Math.round(_cr.left)+'px;width:'+Math.round(_cr.width)+'px;height:100%;background:#000000B8;z-index:99999;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1rem;box-sizing:border-box;';`,
-                    // 버튼 위치 기반 스크롤 — 팝업이 버튼 근처에 보이도록
-                    `setTimeout(function(){var _scrollY=Math.max(0,_br.top-_cr.top-60);d.scrollTop=_scrollY;},50);`,
+                    `d.style='position:fixed;top:0;left:'+Math.round(_cr.left)+'px;width:'+Math.round(_cr.width)+'px;height:100%;background:#000000B8;z-index:99999;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1rem;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:center;';`,
                 ].join('');
 
                 let onclickCode = '';
