@@ -183,8 +183,8 @@
         <div class="mb-6 border border-indigo-100 p-4 rounded-2xl bg-indigo-50/40 flex flex-col">
             <h2 class="text-[12px] font-black text-indigo-600 mb-4 uppercase italic">HERO ENGINE</h2>
             <div class="space-y-3 flex-1 flex flex-col">
-                <textarea id="heroInputForm" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-20 outline-none resize-y bg-white font-medium" placeholder="타이틀: 눈꽃나무 버프패스&#10;서브타이틀: 시즌 한정 이벤트&#10;버튼: 자세히 보기 (없으면 비워두세요)"></textarea>
-                <textarea id="heroStyle" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-20 outline-none resize-y bg-white" placeholder="예) 세련되고 선명한 그래픽 타이포, 깊은 밤하늘, 눈꽃나무 배경"></textarea>
+                <textarea id="heroInputForm" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-20 outline-none resize-y bg-white font-medium" placeholder="타이틀: 이벤트 제목&#10;서브타이틀: 이벤트 설명&#10;버튼: 버튼 텍스트 (없으면 비워두세요)"></textarea>
+                <textarea id="heroStyle" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-20 outline-none resize-y bg-white" placeholder="예) 세련되고 선명한 그래픽 타이포, 배경 분위기 설명"></textarea>
 
                 <!-- 이미지 비율 선택 -->
                 <div class="flex items-center gap-2">
@@ -268,7 +268,7 @@
             <div class="space-y-3">
                 <!-- 직접 입력 -->
                 <div class="relative">
-                    <textarea id="contentData" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-36 outline-none resize-y bg-white font-medium" placeholder="또는 여기에 기획안 텍스트를 직접 입력하세요."></textarea>
+                    <textarea id="contentData" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-36 outline-none resize-y bg-white font-medium" placeholder="여기에 기획안 텍스트를 직접 입력하세요."></textarea>
                 </div>
                 <textarea id="contentStyle" class="w-full border border-slate-200 rounded-xl p-3 text-[11px] h-20 outline-none resize-y bg-white" placeholder="예: 어두운 판타지 느낌, 입체적인 박스 디자인"></textarea>
                 <button onclick="generateContent()" class="w-full bg-emerald-600 text-white font-black py-3 rounded-xl text-sm shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
