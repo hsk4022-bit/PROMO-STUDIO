@@ -149,11 +149,16 @@ html,body{height:100%;width:100%;font-family:'Pretendard',sans-serif;background:
     updateEmptyState();
   }
 
-  // 초기값 로드
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY) || '';
-    if (saved) keyInput.value = saved;
-  } catch(e){}
+  // Chrome 자동완성 강제 차단: 일단 비우고 localStorage 값만 복원
+  keyInput.value = '';
+  setTimeout(() => {
+    keyInput.value = '';
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY) || '';
+      if (saved) keyInput.value = saved;
+    } catch(e){}
+    updateEmptyState();
+  }, 100);
   updateEmptyState();
 
   // 비어있으면 페이지 진입 시 포커스 유도
