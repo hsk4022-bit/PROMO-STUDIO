@@ -924,7 +924,7 @@ function App() {
                                     {/* 텍스트 제거 섹션 */}
                                     <div className="space-y-2">
                                         <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Type className="w-3 h-3" /> 지울 원문 텍스트 <span title="배너에서 지울 텍스트를 입력하면 AI가 해당 텍스트를 찾아 깔끔하게 제거합니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
-                                        <textarea rows="3" value={globalOriginalText} onChange={e => setGlobalOriginalText(e.target.value)} placeholder="예: 메이드 카페에서 일하게 된 모험가, ..." className="w-full bg-[#111217] border border-[#1e2028] px-3 py-2 text-[11px] rounded focus:border-[#3264ff]/50 outline-none text-slate-300 resize-y transition-colors" />
+                                        <textarea rows="3" value={globalOriginalText} onChange={e => setGlobalOriginalText(e.target.value)} placeholder="예: 타이틀, 서브타이틀, 버튼..." className="w-full bg-[#111217] border border-[#1e2028] px-3 py-2 text-[11px] rounded focus:border-[#3264ff]/50 outline-none text-slate-300 resize-y transition-colors" />
                                     </div>
 
                                     {/* 그래픽 제거 */}
