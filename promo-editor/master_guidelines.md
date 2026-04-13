@@ -72,8 +72,8 @@
   <div class="se-div" style="margin:0;padding:0;line-height:0;font-size:0;display:block;width:100%;"></div>
 
   <!-- 2번 블록: 컨텐츠 전체 래퍼 -->
-  <div class="se-div" style="background-color:${bgColor};margin:0;padding:0;display:block;width:100%;box-sizing:border-box;">
-    <!-- 섹션 se-div들이 형제로 수직 적층. 각 섹션에 좌우 패딩: padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px) 적용 -->
+  <div class="se-div" style="background-color:${bgColor};margin:0;padding:clamp(24px,3.472vw,50px) clamp(16px,3.472vw,50px);display:block;width:100%;box-sizing:border-box;">
+    <!-- 섹션 se-div들이 형제로 수직 적층. 섹션 자체에 별도 좌우 패딩 추가 금지 (래퍼에서 처리) -->
   </div>
 
 </div>
@@ -133,6 +133,7 @@
   <div class="se-div" style="margin-bottom:1rem;">
     <span style="display:inline-block;width:1.75rem;height:1.75rem;background-color:${accentColor};border-radius:50%;text-align:center;line-height:1.75rem;font-weight:900;color:#000000;font-size:0.875rem;margin-right:0.625rem;vertical-align:middle;">N</span>
     <span style="font-size:clamp(1.25rem,2.5vw,1.375rem);font-weight:700;color:${textColor};vertical-align:middle;">섹션제목</span>
+  <!-- ⚠️ 섹션제목에서 앞 번호(예: "1." "2." "1. " "2. ") 반드시 제거. 배지(N)가 번호 역할을 하므로 중복 금지. -->
   </div>
   <!-- 섹션 내용 -->
   <div class="se-div" style="padding:0.75rem 0;border-top:1px solid ${borderColor};">
@@ -165,13 +166,14 @@
 # [테이블 규칙]
 - 표 데이터는 반드시 <table>. div 대체 절대 금지.
 - 테이블은 섹션 se-div 안에 직접 배치. **별도 래퍼 div 추가 금지.**
-- table: style="width:100%;border-collapse:collapse;table-layout:fixed;border-radius:0.5rem;overflow:hidden;margin:0;"
+- table: style="width:100%;border-collapse:collapse;table-layout:fixed;margin:0;"
 - th: style="padding:0.875rem 1rem;font-weight:700;color:${accentColor};border-bottom:1px solid ${borderColor};text-align:center;background-color:${surfaceColor};word-break:keep-all;line-height:1.4;font-size:inherit;"
 - td: style="padding:0.875rem 1rem;border-bottom:1px solid ${borderColor};color:${textColor};text-align:center;vertical-align:middle;word-break:break-all;overflow-wrap:anywhere;font-size:inherit;"
 - 짝수 행: background-color:${surfaceColor}
 - 모든 th·td에 width% 명시. colspan/rowspan 적극 활용.
 - 이미지 마커 (item1) 있을 때만 이미지 셀 생성. 마커 없으면 이미지 셀 생성 금지.
 - 데이터 없는 빈 행 생성 금지.
+- **연속된 테이블 2개 이상**: 테이블 사이에 반드시 `<p style="height:16px;margin:0;"></p>` 간격 삽입. 테이블끼리 붙이지 말 것.
 
 ---
 
@@ -259,7 +261,7 @@ d.style='position:fixed;top:0;left:'+Math.round(_cr.left)+'px;width:'+Math.round
 var wrap=document.createElement('div');
 wrap.style='position:relative;width:100%;max-width:37.5rem;max-height:85vh;';
 var box=document.createElement('div');
-box.style='background:${bgColor};border-radius:1rem;overflow-y:auto;overflow-x:hidden;padding:1.5rem;max-height:85vh;font-family:Pretendard,sans-serif;line-height:1.8;color:${textColor};font-size:clamp(0.875rem,1.702vw,1rem);box-sizing:border-box;-webkit-overflow-scrolling:touch;';
+box.style='background:${surfaceColor};border-radius:1rem;overflow-y:auto;overflow-x:hidden;padding:1.5rem;max-height:85vh;font-family:Pretendard,sans-serif;line-height:1.8;color:${textColor};font-size:clamp(0.875rem,1.702vw,1rem);box-sizing:border-box;-webkit-overflow-scrolling:touch;';
 box.innerHTML=src.innerHTML;
 wrap.appendChild(box);
 var close=document.createElement('a');close.href='javascript:void(0)';close.innerHTML='\u2715';
@@ -369,6 +371,15 @@ J: 3열 배치 — <div class="se-div" style="display:inline-block;vertical-alig
 - 계층: se-contents > 대카드(se-div) > 소섹션(내부 se-div) — 과도한 분리 FAIL.
 - 모든 섹션은 반드시 형제(Sibling)로 수직 적층. 중첩(Nesting) 금지.
 - **절대 규칙: 하나의 콘텐츠 내 모든 섹션은 동일한 디자인 패턴 사용. 섹션마다 다른 스타일(카드형/border-left형/풀폭형) 혼합 금지 → 즉시 FAIL.**
+
+## 헤딩 유형별 처리 규칙 (⚠️ 위반 시 FAIL)
+
+| 원고 패턴 | 처리 방식 |
+|----------|----------|
+| `■ 제목` / `▶ 제목` | 번호 배지 없이 소제목으로 처리. `<p style="font-weight:900;color:${accentColor};...">■ 제목</p>` — 배지(원형) 생성 금지 |
+| `N. 제목` (숫자+점) | 번호 배지(원형) + 제목 텍스트. **제목에서 `N.` 앞 번호 반드시 제거.** 배지에만 번호 표시 |
+| `- 내용` / `• 내용` | 불릿 리스트. `<p style="...">` 로 렌더링, 앞에 `•` 또는 `–` 인디케이터 유지. `ul/li` 금지 |
+| `(수정)` `(추가)` 등 태그 | 원고 텍스트 그대로 출력. 임의 스타일링 금지 |
 
 ---
 

@@ -135,50 +135,17 @@
     </div>
 
     <aside class="w-[360px] bg-white border-r border-slate-200 flex flex-col h-full overflow-y-auto shrink-0 p-5 shadow-xl z-50">
-        <div class="mb-6">
-            <h2 class="text-[11px] font-black text-slate-400 tracking-widest mb-4 uppercase" data-promo-studio-hide>ENGINE SETTINGS</h2>
-            <div class="space-y-4">
-                <div data-promo-studio-hide>
-                    <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Gemini API Key</label>
-                    <input type="password" id="apiKeyInput" placeholder="API Key 입력..." class="w-full border border-slate-200 rounded-xl p-3 text-sm outline-none font-bold bg-amber-50/20">
-                </div>
-                <!-- [Notion 연동 영역 — 임시 비활성화]
-                <div class="border border-violet-100 rounded-xl p-3 bg-violet-50/20">
-                    <label class="text-[10px] font-bold text-violet-500 mb-1 block uppercase">Notion Integration Token</label>
-                    <input type="password" id="notionTokenInput" placeholder="secret_xxxx..." class="w-full border border-violet-200 rounded-xl p-2.5 text-xs outline-none font-bold bg-white mb-2">
-                    <label class="text-[9px] font-bold text-violet-400 uppercase block mb-1">기획서 페이지 URL</label>
-                    <div class="flex gap-2 mb-1">
-                        <input type="text" id="notionPageUrlTop" placeholder="Notion 페이지 URL 붙여넣기..." class="flex-1 border border-violet-200 rounded-lg p-2 text-xs outline-none bg-white font-medium">
-                        <button onclick="syncNotionPageUrlToMain()" class="bg-violet-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg hover:bg-violet-700 transition-all whitespace-nowrap">등록</button>
-                    </div>
-                    <input type="hidden" id="notionPageUrl">
-                    <div id="notionRegistered" style="display:none;" class="flex items-center justify-between bg-violet-100 rounded-lg px-3 py-2 mt-1">
-                        <div class="flex items-center gap-2">
-                            <span class="text-[10px]">✅</span>
-                            <span id="notionRegisteredTitle" class="text-[10px] font-bold text-violet-700 truncate max-w-[120px]">연동됨</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button onclick="notionUpdateAndGenerate()" id="notionUpdateBtn" class="bg-violet-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg hover:bg-violet-700 transition-all flex items-center gap-1">
-                                <span>🔄 업데이트</span>
-                                <div id="notionUpdateSpinner" class="spinner-container hidden"></div>
-                            </button>
-                            <button onclick="clearNotionUrl()" class="text-[10px] text-violet-400 hover:text-red-500 font-bold transition-colors">✕</button>
-                        </div>
-                    </div>
-                </div>
-                [/Notion 연동 영역] -->
-                <!-- 호환성 유지용 hidden inputs -->
-                <input type="hidden" id="notionTokenInput">
-                <input type="hidden" id="notionPageUrlTop">
-                <input type="hidden" id="notionPageUrl">
-                <div id="notionRegistered" style="display:none;"></div>
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Max Width (px)</label>
-                    <input type="number" id="pageWidthInput" value="840" class="w-full border border-slate-200 rounded-xl p-3 text-sm outline-none font-bold">
-                </div>
-
+        <div class="mb-3">
+            <h2 class="text-[11px] font-black text-slate-400 tracking-widest mb-2 uppercase" data-promo-studio-hide>ENGINE SETTINGS</h2>
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Max Width (px)</label>
+                <input type="number" id="pageWidthInput" value="840" class="w-full border border-slate-200 rounded-xl p-2 text-sm outline-none font-bold">
             </div>
         </div>
+        <!-- 호환성 유지용 hidden inputs -->
+        <input type="hidden" id="notionPageUrlTop">
+        <input type="hidden" id="notionPageUrl">
+        <div id="notionRegistered" style="display:none;"></div>
 
         <div class="mb-6 border border-indigo-100 p-4 rounded-2xl bg-indigo-50/40 flex flex-col">
             <h2 class="text-[12px] font-black text-indigo-600 mb-4 uppercase italic">HERO ENGINE</h2>
@@ -498,6 +465,18 @@
             const d = ev.data || {};
             if (d.type === 'PROMO_STUDIO_API_KEY') applyKey(d.key);
           });
+        })();
+
+        // Notion Token localStorage 저장/복원
+        (function(){
+          const el = document.getElementById('notionTokenInput');
+          if (!el) return;
+          try {
+            const stored = localStorage.getItem('promo_studio_notion_token');
+            if (stored) { el.value = stored; el.dispatchEvent(new Event('input', { bubbles: true })); }
+          } catch(e){}
+          el.addEventListener('change', function(){ try { localStorage.setItem('promo_studio_notion_token', this.value); } catch(e){} });
+          el.addEventListener('blur', function(){ try { localStorage.setItem('promo_studio_notion_token', this.value); } catch(e){} });
         })();
         </script>
 </body>
