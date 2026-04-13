@@ -426,9 +426,9 @@ const CompactSingleUploader = ({ label, image, onUpload, onDelete, icon: Icon = 
   };
 
 const parseTypography = (text) => {
-  if (!text) return { parsedTitle: '', parsedSubText: '', parsedBtnText: '' };
+  if (!text) return { parsedTitle: '', parsedSubText: '', parsedBtnText: '', parsedExtraText: '', parsedBadge: '' };
 
-  let title = '', sub = '', btn = '';
+  let title = '', sub = '', btn = '', extra = '', badge = '';
 
   const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
   let isParsed = false;
@@ -443,6 +443,11 @@ const parseTypography = (text) => {
     const btnMatch = line.match(/^(?:\[\uBC84\uD2BC\]|\[Button\]|\uBC84\uD2BC:|Button:)\s*(.*)/i);
     if (btnMatch) { btn = btnMatch[1]; isParsed = true; continue; }
 
+    const extraMatch = line.match(/^(?:\[\uCD94\uAC00\uD14D\uC2A4\uD2B8\]|\uCD94\uAC00\uD14D\uC2A4\uD2B8:|\[Extra Text\]|Extra Text:)\s*(.*)/i);
+    if (extraMatch) { extra = extraMatch[1]; isParsed = true; continue; }
+
+    const badgeMatch = line.match(/^(?:\[\uBC30\uC9C0\]|\uBC30\uC9C0:|\[Badge\]|Badge:)\s*(.*)/i);
+    if (badgeMatch) { badge = badgeMatch[1]; isParsed = true; continue; }
   }
 
   if (!isParsed && lines.length > 0) {
@@ -451,7 +456,7 @@ const parseTypography = (text) => {
     btn = lines[2] || '';
   }
 
-  return { parsedTitle: title, parsedSubText: sub, parsedBtnText: btn };
+  return { parsedTitle: title, parsedSubText: sub, parsedBtnText: btn, parsedExtraText: extra, parsedBadge: badge };
 };
 
 function App() {
@@ -667,7 +672,7 @@ function App() {
         return;
     }
 
-    const { parsedTitle, parsedSubText, parsedBtnText } = parseTypography(typographyText);
+    const { parsedTitle, parsedSubText, parsedBtnText, parsedExtraText, parsedBadge } = parseTypography(typographyText);
 
     if (!parsedTitle.trim() && !uploadedMaster) { setError("\uB0B4\uC6A9\uC744 \uC785\uB825\uD558\uC138\uC694."); return; }
 
@@ -677,6 +682,8 @@ function App() {
       let combinedText = `- [TITLE]: "${parsedTitle}"\n`;
       if (parsedSubText) combinedText += `- [SUBTITLE]: "${parsedSubText}"\n`;
       if (parsedBtnText) combinedText += `- [BUTTON]: "${parsedBtnText}"\n`;
+      if (parsedExtraText) combinedText += `- [EXTRA TEXT]: "${parsedExtraText}"\n`;
+      if (parsedBadge) combinedText += `- [BADGE]: "${parsedBadge}"\n`;
 
       prompt += `TEXT TO RENDER:\n${combinedText.trim()}\n`;
 
@@ -717,7 +724,7 @@ function App() {
       const width = Number(p.w); const height = Number(p.h);
       const nativeRatioStr = getClosestNativeRatio(width, height);
 
-      const { parsedTitle: titleText, parsedSubText: subText, parsedBtnText: btnText } = parseTypography(typographyText);
+      const { parsedTitle: titleText, parsedSubText: subText, parsedBtnText: btnText, parsedExtraText: extraText, parsedBadge: badge } = parseTypography(typographyText);
 
       let activeSubText = subText;
       let activeBtnText = btnText;
@@ -731,6 +738,8 @@ function App() {
       let combinedText = `- [TITLE]: "${titleText}"\n`;
       if (activeSubText) combinedText += `- [SUBTITLE]: "${activeSubText}"\n`;
       if (activeBtnText) combinedText += `- [BUTTON]: "${activeBtnText}"\n`;
+      if (extraText) combinedText += `- [EXTRA TEXT]: "${extraText}"\n`;
+      if (badge) combinedText += `- [BADGE]: "${badge}"\n`;
 
       let varPrompt = `TASK: PRODUCE BANNER ${width}x${height} (1X NATIVE RESOLUTION).\n`;
       varPrompt += `REF_1 IS THE SOLE REFERENCE. MIRROR EVERY DETAIL. ASPECT: [${nativeRatioStr}].\n`;
