@@ -62,8 +62,8 @@ Write EXACT Korean strings. Mimic font weight from REF_1.
 ## Typography Input Format
 
 ```
-[타이틀] 눈꽃 나무 버프 패스
-[서브타이틀] 지금 바로 눈꽃 나무 버프 패스 이벤트를 확인해 보세요
+[타이틀] 황금나무 키우기
+[서브타이틀] 지금 바로 황금 나무 이벤트를 확인해 보세요
 [버튼] 자세히 보기
 [추가텍스트] 2026.04.01 ~ 04.30
 [배지] HOT
