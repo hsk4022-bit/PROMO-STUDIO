@@ -682,8 +682,6 @@ function App() {
       let combinedText = `- [TITLE]: "${parsedTitle}"\n`;
       if (parsedSubText) combinedText += `- [SUBTITLE]: "${parsedSubText}"\n`;
       if (parsedBtnText) combinedText += `- [BUTTON]: "${parsedBtnText}"\n`;
-      if (parsedExtraText) combinedText += `- [EXTRA TEXT]: "${parsedExtraText}"\n`;
-      if (parsedBadge) combinedText += `- [BADGE]: "${parsedBadge}"\n`;
 
       prompt += `TEXT TO RENDER:\n${combinedText.trim()}\n`;
 
@@ -738,8 +736,6 @@ function App() {
       let combinedText = `- [TITLE]: "${titleText}"\n`;
       if (activeSubText) combinedText += `- [SUBTITLE]: "${activeSubText}"\n`;
       if (activeBtnText) combinedText += `- [BUTTON]: "${activeBtnText}"\n`;
-      if (extraText) combinedText += `- [EXTRA TEXT]: "${extraText}"\n`;
-      if (badge) combinedText += `- [BADGE]: "${badge}"\n`;
 
       let varPrompt = `TASK: PRODUCE BANNER ${width}x${height} (1X NATIVE RESOLUTION).\n`;
       varPrompt += `REF_1 IS THE SOLE REFERENCE. MIRROR EVERY DETAIL. ASPECT: [${nativeRatioStr}].\n`;
@@ -847,7 +843,7 @@ function App() {
              <textarea
                value={typographyText}
                onChange={e => setTypographyText(e.target.value)}
-               placeholder={"[타이틀] 황금나무 키우기\n[서브타이틀] 지금 바로 황금 나무 이벤트를 확인해 보세요\n[버튼] 자세히 보기\n[추가텍스트] 0000.00.00 ~ 00.00\n[배지] NEW"}
+               placeholder={"[타이틀] 황금나무 키우기\n[서브타이틀] 지금 바로 황금 나무 이벤트를 확인해 보세요\n[버튼] 자세히 보기"}
                className="w-full h-32 bg-[#111217] border border-[#2d2f36] px-4 py-2.5 text-xs text-white outline-none rounded-sm focus:border-[#3264ff]/40 text-left resize-none whitespace-pre-wrap leading-relaxed"
              />
           </div>
