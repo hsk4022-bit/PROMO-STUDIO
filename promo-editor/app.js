@@ -2,7 +2,7 @@
         const getById = (id) => document.getElementById(id);
         const apiKey = ""; 
         const CONTENT_MODEL = "gemini-3-flash-preview"; 
-        const IMAGE_MODEL = "gemini-3-pro-image-preview";
+        const IMAGE_MODEL = "gemini-3.1-flash-image-preview";
         
         function generateHashString(length) {
             const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
