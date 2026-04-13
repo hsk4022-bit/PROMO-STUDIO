@@ -1,0 +1,983 @@
+const { useState, useRef, useEffect } = React;
+const {
+  Download, Layout, CheckCircle2, AlertCircle, Loader2, X, Zap, Box, Type,
+  MessageSquareText, Check, PlusSquare, Maximize, RotateCcw,
+  Layers, ArrowRightCircle, Trash2, PlusCircle, Square, CheckSquare,
+  Scan, Files, Edit3, UploadCloud, Info, Archive, Lock,
+  Image: ImageIcon, LayoutTemplate
+} = LucideReact;
+
+const apiKeyDefault = "";
+
+const INITIAL_SIZE_CATEGORIES = [
+  {
+    name: "가로형",
+    presets: [
+      { id: "h_640_100", w: 640, h: 100 },
+      { id: "h_728_90", w: 728, h: 90 },
+      { id: "h_970_90", w: 970, h: 90 },
+      { id: "hs_300_50", w: 300, h: 50 },
+      { id: "hs_300_60", w: 300, h: 60 },
+      { id: "hs_320_50", w: 320, h: 50 },
+      { id: "hs_320_100", w: 320, h: 100 },
+      { id: "hs_900_150", w: 900, h: 150 },
+      { id: "hs_970_250", w: 970, h: 250 }
+    ]
+  },
+  {
+    name: "정사각형",
+    presets: [
+      { id: "s_500_500", w: 500, h: 500 },
+      { id: "s_1080_1080", w: 1080, h: 1080 }
+    ]
+  },
+  {
+    name: "직사각형",
+    presets: [
+      { id: "r_300_250", w: 300, h: 250 },
+      { id: "r_480_320", w: 480, h: 320 },
+      { id: "r_800_400", w: 800, h: 400 },
+      { id: "r_1024_768", w: 1024, h: 768 },
+      { id: "r_1200_628", w: 1200, h: 628 },
+      { id: "r_1200_800", w: 1200, h: 800 },
+      { id: "r_1280_720", w: 1280, h: 720 },
+      { id: "r_1920_1080", w: 1920, h: 1080 }
+    ]
+  },
+  {
+    name: "세로형",
+    presets: [
+      { id: "v_320_480", w: 320, h: 480 },
+      { id: "v_300_600", w: 300, h: 600 },
+      { id: "v_375_667", w: 375, h: 667 },
+      { id: "v_640_960", w: 640, h: 960 },
+      { id: "v_768_1024", w: 768, h: 1024 },
+      { id: "v_800_1200", w: 800, h: 1200 },
+      { id: "v_720_1280", w: 720, h: 1280 },
+      { id: "v_1203_1500", w: 1203, h: 1500 },
+      { id: "v_1080_1920", w: 1080, h: 1920 }
+    ]
+  }
+];
+
+const ALL_INITIAL_IDS = INITIAL_SIZE_CATEGORIES.flatMap(cat => cat.presets.map(p => p.id));
+const LOCKED_PRESET_ID = "s_1080_1080";
+
+const DEFAULT_LOGO_SCALES = {
+  "master": 70,
+  "h_640_100": 60,
+  "h_728_90": 45,
+  "h_970_90": 50,
+  "hs_300_50": 65,
+  "hs_300_60": 70,
+  "hs_320_50": 75,
+  "hs_320_100": 85,
+  "hs_900_150": 70,
+  "hs_970_250": 55,
+  "s_500_500": 80,
+  "s_1080_1080": 70,
+  "r_300_250": 85,
+  "r_480_320": 75,
+  "r_800_400": 60,
+  "r_1024_768": 60,
+  "r_1200_628": 55,
+  "r_1200_800": 55,
+  "r_1280_720": 50,
+  "r_1920_1080": 60,
+  "v_320_480": 110,
+  "v_300_600": 110,
+  "v_375_667": 110,
+  "v_640_960": 90,
+  "v_768_1024": 80,
+  "v_800_1200": 80,
+  "v_720_1280": 85,
+  "v_1203_1500": 85,
+  "v_1080_1920": 85
+};
+
+const stripBase64Params = (base64) => {
+  if (!base64 || typeof base64 !== 'string') return '';
+  const parts = base64.split('base64,');
+  return parts.length > 1 ? parts[1] : parts[0];
+};
+
+const SUPPORTED_ASPECT_RATIOS = [
+  { str: "1:1", val: 1/1 }, { str: "4:3", val: 4/3 }, { str: "3:2", val: 3/2 }, { str: "5:4", val: 5/4 },
+  { str: "16:9", val: 16/9 }, { str: "21:9", val: 21/9 }, { str: "32:9", val: 32/9 }, { str: "4:1", val: 4/1 },
+  { str: "8:1", val: 8/1 }, { str: "9:16", val: 9/16 }, { str: "2:3", val: 2/3 }, { str: "4:5", val: 4/5 },
+  { str: "1:4", val: 1/4 }, { str: "1:8", val: 1/8 }
+];
+
+const getClosestNativeRatio = (w, h) => {
+  const targetRatio = w / h;
+  let closest = SUPPORTED_ASPECT_RATIOS[0];
+  let minDiff = Math.abs(targetRatio - closest.val);
+  for (let i = 1; i < SUPPORTED_ASPECT_RATIOS.length; i++) {
+    const diff = Math.abs(targetRatio - SUPPORTED_ASPECT_RATIOS[i].val);
+    if (diff < minDiff) { closest = SUPPORTED_ASPECT_RATIOS[i]; minDiff = diff; }
+  }
+  return closest.str;
+};
+
+const processImageForApi = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 2048;
+        let w = img.width, h = img.height;
+        if (w > h) { if (w > maxSize) { h *= maxSize / w; w = maxSize; } }
+        else { if (h > maxSize) { w *= maxSize / h; h = maxSize; } }
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      };
+    };
+  });
+};
+
+const getLogoPadding = (w, h) => {
+  const id = `${w}x${h}`;
+  const pads = {
+    "1024x1024": 32,
+    "640x100": 12,
+    "728x90": 12,
+    "970x90": 12,
+    "300x50": 8,
+    "300x60": 8,
+    "320x50": 8,
+    "320x100": 8,
+    "900x150": 12,
+    "970x250": 12,
+    "500x500": 24,
+    "1080x1080": 32,
+    "300x250": 12,
+    "480x320": 12,
+    "800x400": 24,
+    "1024x768": 24,
+    "1200x628": 24,
+    "1200x800": 24,
+    "1280x720": 24,
+    "1920x1080": 24,
+    "320x480": 12,
+    "300x600": 12,
+    "375x667": 24,
+    "640x960": 24,
+    "768x1024": 24,
+    "800x1200": 32,
+    "720x1280": 32,
+    "1203x1500": 32,
+    "1080x1920": 32
+  };
+  return pads[id] || 12;
+};
+
+const finalizeBannerPixel = (base64, targetW, targetH, logoBase64, scaleModifier = 100, position = 'tl') => {
+  return new Promise((resolve) => {
+    if (!base64) return resolve(null);
+    const img = new Image();
+    img.src = base64;
+    img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetW, targetH);
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        const imgRatio = img.width / img.height;
+        const targetRatio = targetW / targetH;
+        let drawW, drawH, drawX, drawY;
+
+        if (imgRatio > targetRatio) {
+            drawH = targetH;
+            drawW = targetH * imgRatio;
+            drawX = (targetW - drawW) / 2;
+            drawY = 0;
+        } else {
+            drawW = targetW;
+            drawH = targetW / imgRatio;
+            drawX = 0;
+            drawY = (targetH - drawH) / 2;
+        }
+        ctx.drawImage(img, drawX, drawY, drawW, drawH);
+
+        if (logoBase64) {
+          try {
+            const logoImg = await new Promise((res, rej) => {
+                const lImg = new Image(); lImg.src = logoBase64;
+                lImg.onload = () => res(lImg); lImg.onerror = rej;
+            });
+
+            let padding = getLogoPadding(targetW, targetH);
+
+            let baseLogoH = targetH * 0.22;
+            let baseLogoW = targetW * 0.28;
+            if (targetH <= 100) baseLogoH = targetH * 0.48;
+
+            let maxLogoH = baseLogoH * (scaleModifier / 100);
+            let maxLogoW = baseLogoW * (scaleModifier / 100);
+
+            maxLogoH = Math.min(maxLogoH, targetH - (padding * 2));
+            maxLogoW = Math.min(maxLogoW, targetW - (padding * 2));
+
+            const fitScale = Math.min(maxLogoW / logoImg.width, maxLogoH / logoImg.height);
+            const finalW = logoImg.width * fitScale;
+            const finalH = logoImg.height * fitScale;
+
+            let lx, ly;
+
+            switch(position) {
+              case 'tr':
+                lx = targetW - finalW - padding;
+                ly = padding;
+                break;
+              case 'bl':
+                lx = padding;
+                ly = targetH - finalH - padding;
+                break;
+              case 'br':
+                lx = targetW - finalW - padding;
+                ly = targetH - finalH - padding;
+                break;
+              case 'tl':
+              default:
+                lx = padding;
+                ly = padding;
+                break;
+            }
+
+            lx = Math.max(padding, Math.min(lx, targetW - finalW - padding));
+            ly = Math.max(padding, Math.min(ly, targetH - finalH - padding));
+
+            ctx.drawImage(logoImg, lx, ly, finalW, finalH);
+
+          } catch(e) {}
+        }
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+  });
+};
+
+const GlobalTooltip = ({ tooltip }) => {
+  if (!tooltip || !tooltip.visible) return null;
+  return (
+    <div className="fixed z-[9999] w-52 p-3 bg-[#1e2026] border border-white/10 rounded shadow-2xl text-[11px] text-slate-300 pointer-events-none animate-fade-in"
+      style={{
+        top: (tooltip.rect?.bottom || 0) + 10,
+        left: (tooltip.rect?.left || 0) + ((tooltip.rect?.width || 0) / 2),
+        transform: `translateX(-50%)`,
+      }}>
+      {tooltip.text}
+    </div>
+  );
+};
+
+const MultiImageUploader = ({ label, images, onUpload, onDelete, icon: Icon = PlusSquare }) => {
+  const fileInputRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const handleFiles = async (files) => {
+    if (!files) return;
+    for (let f of Array.from(files)) {
+      if (f.type.startsWith('image/') || f.name.toLowerCase().endsWith('.svg')) {
+        const processed = await processImageForApi(f);
+        onUpload(processed);
+      }
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1 w-full text-left">
+      <div className="flex justify-between items-center px-1 text-left"><span className="text-[10px] font-bold text-[#8a8d97] uppercase tracking-widest flex items-center gap-2"><Icon className="w-4 h-4 text-slate-500" /> {label}</span></div>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFiles(e.dataTransfer.files); }}
+        className={`grid grid-cols-3 gap-1.5 p-2 rounded border border-dashed transition-all ${isDragging ? 'border-[#3264ff] bg-[#3264ff]/5' : 'border-[#2d2f36] bg-[#0d0e12]'}`}
+      >
+        {images.map((img, idx) => (
+          <div key={idx} className="relative group aspect-square rounded-sm overflow-hidden shadow-lg ring-1 ring-white/5 bg-[#15171c]">
+            <img src={img} alt="asset" className="w-full h-full object-contain pointer-events-none p-1" />
+            <button onClick={() => onDelete(idx)} className="absolute inset-0 bg-black/70 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
+          </div>
+        ))}
+        <div onClick={() => fileInputRef.current?.click()} className="aspect-square border border-dashed border-[#2d2f36] bg-[#15171c]/50 hover:bg-[#1a1c23] flex flex-col items-center justify-center cursor-pointer rounded-sm">
+          <PlusSquare className="w-5 h-5 text-slate-600 mb-1" />
+          <span className="text-[7px] font-black text-slate-500">ADD</span>
+          <input type="file" ref={fileInputRef} onChange={(e) => handleFiles(e.target.files)} accept="image/*" multiple className="hidden" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CompactSingleUploader = ({ label, image, onUpload, onDelete, icon: Icon = PlusSquare, raw = false }) => {
+    const fileInputRef = useRef(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const handleFile = async (file) => {
+        if (file && (file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.svg'))) {
+            if (raw) {
+                const reader = new FileReader();
+                reader.onload = (e) => onUpload(e.target.result);
+                reader.readAsDataURL(file);
+            } else {
+                const processed = await processImageForApi(file);
+                onUpload(processed);
+            }
+        }
+    };
+    return (
+      <div className="flex flex-col gap-1 w-full text-left">
+        <div className="flex justify-between items-center px-1 text-left"><span className="text-[10px] font-bold text-[#8a8d97] uppercase tracking-widest flex items-center gap-2"><Icon className="w-3.5 h-3.5 text-slate-500" /> {label}</span></div>
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]); }}
+          className={`relative group h-24 w-full rounded border transition-all flex items-center justify-center overflow-hidden shadow-inner ${isDragging ? 'border-[#3264ff] bg-[#3264ff]/10 cursor-pointer' : image ? 'border-solid border-[#2d2f36] bg-[#0d0e12] cursor-pointer hover:border-[#3d404a]' : 'border-dashed border-[#2d2f36] bg-[#0d0e12] hover:border-[#3d404a] cursor-pointer'}`}
+        >
+          {image ? (
+            <>
+              <img src={image} alt="upload" className={`w-full h-full object-contain p-2 transition-opacity ${isDragging ? 'opacity-20' : 'opacity-100'}`} />
+              <div className={`absolute inset-0 flex items-center justify-center transition-all ${isDragging ? 'bg-[#3264ff]/20 opacity-100' : 'bg-black/70 opacity-0 group-hover:opacity-100'}`}>
+                  {isDragging ? (
+                      <span className="text-[10px] font-black text-[#3264ff] tracking-widest drop-shadow-md">DROP TO REPLACE</span>
+                  ) : (
+                      <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="text-red-400 hover:text-red-300 p-2"><Trash2 className="w-6 h-6" /></button>
+                  )}
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5 opacity-20 text-slate-400 text-center pointer-events-none">
+              <UploadCloud className={`w-6 h-6 ${isDragging ? 'text-[#3264ff] opacity-100' : ''}`} />
+              <span className="text-[8px] font-bold uppercase tracking-widest mt-1 text-center text-slate-500">{isDragging ? 'DROP HERE' : 'DRAG & DROP (SVG)'}</span>
+            </div>
+          )}
+          <input type="file" ref={fileInputRef} onChange={(e) => handleFile(e.target.files?.[0])} accept="image/*, .svg" className="hidden" />
+        </div>
+      </div>
+    );
+  };
+
+const parseTypography = (text) => {
+  if (!text) return { parsedTitle: '', parsedSubText: '', parsedBtnText: '', parsedExtraText: '', parsedBadge: '' };
+
+  let title = '', sub = '', btn = '', extra = '', badge = '';
+
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
+  let isParsed = false;
+
+  for (const line of lines) {
+    const titleMatch = line.match(/^(?:\[타이틀\]|\[Title\]|\[Main Title\]|타이틀:|Title:|Main Title:)\s*(.*)/i);
+    if (titleMatch) { title = titleMatch[1]; isParsed = true; continue; }
+
+    const subMatch = line.match(/^(?:\[서브타이틀\]|\[Sub title\]|\[Subtitle\]|서브타이틀:|Sub title:|Subtitle:)\s*(.*)/i);
+    if (subMatch) { sub = subMatch[1]; isParsed = true; continue; }
+
+    const btnMatch = line.match(/^(?:\[버튼\]|\[Button\]|버튼:|Button:)\s*(.*)/i);
+    if (btnMatch) { btn = btnMatch[1]; isParsed = true; continue; }
+
+    const extraMatch = line.match(/^(?:\[추가텍스트\]|추가텍스트:|\[Extra Text\]|Extra Text:)\s*(.*)/i);
+    if (extraMatch) { extra = extraMatch[1]; isParsed = true; continue; }
+
+    const badgeMatch = line.match(/^(?:\[배지\]|배지:|\[Badge\]|Badge:)\s*(.*)/i);
+    if (badgeMatch) { badge = badgeMatch[1]; isParsed = true; continue; }
+  }
+
+  if (!isParsed && lines.length > 0) {
+    title = lines[0] || '';
+    sub = lines[1] || '';
+    btn = lines[2] || '';
+  }
+
+  return { parsedTitle: title, parsedSubText: sub, parsedBtnText: btn, parsedExtraText: extra, parsedBadge: badge };
+};
+
+function App() {
+  const [typographyText, setTypographyText] = useState('');
+  const [backgroundPrompt, setBackgroundPrompt] = useState('');
+  const [resourceImages, setResourceImages] = useState([]);
+  const [referenceImage, setReferenceImage] = useState(null);
+  const [uploadedMaster, setUploadedMaster] = useState(null);
+  const [logoImage, setLogoImage] = useState(null);
+  const [logoPosition, setLogoPosition] = useState('tl');
+
+  const [logoScaleModifiers, setLogoScaleModifiers] = useState(DEFAULT_LOGO_SCALES);
+
+  const [rawConceptImage, setRawConceptImage] = useState(null);
+  const [isGeneratingMaster, setIsGeneratingMaster] = useState(false);
+  const [isGeneratingVariations, setIsGeneratingVariations] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
+  const [error, setError] = useState(null);
+  const [conceptImage, setConceptImage] = useState(null);
+  const [results, setResults] = useState({});
+  const [customPresets, setCustomPresets] = useState([]);
+  const [selectedPresetIds, setSelectedPresetIds] = useState(ALL_INITIAL_IDS);
+  const [customPrompts, setCustomPrompts] = useState({});
+  const [customW, setCustomW] = useState('');
+  const [customH, setCustomH] = useState('');
+  const [resetKey, setResetKey] = useState(0);
+  const [userApiKey, setUserApiKey] = useState('');
+  const [isLogoDragging, setIsLogoDragging] = useState(false);
+
+  const apiKeyInputRef = useRef(null);
+  const [apiKeyHighlight, setApiKeyHighlight] = useState(false);
+
+  const resultsRef = useRef(results);
+  useEffect(() => { resultsRef.current = results; }, [results]);
+
+  const API_MODEL = 'gemini-3.1-flash-image-preview';
+
+  const getActiveApiKey = () => (userApiKey && userApiKey.trim() !== '') ? userApiKey.trim() : apiKeyDefault;
+
+  useEffect(() => {
+    const updateAll = async () => {
+      if (rawConceptImage) applyLogoScale('master');
+      Object.keys(resultsRef.current).forEach(pid => { if (resultsRef.current[pid]?.rawUrl) applyLogoScale(pid); });
+    };
+    updateAll();
+  }, [logoPosition, logoImage]);
+
+  const handleMasterUpload = async (processedImage) => {
+    if (processedImage) {
+        setUploadedMaster(processedImage); setRawConceptImage(processedImage);
+        const finalized = await finalizeBannerPixel(processedImage, 1024, 1024, logoImage, logoScaleModifiers['master'] ?? 100, logoPosition);
+        setConceptImage(finalized); setError(null);
+    }
+  };
+
+  const handleRawLogo = (file) => {
+    if (file && (file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.svg'))) {
+        const reader = new FileReader();
+        reader.onload = (e) => setLogoImage(e.target.result);
+        reader.readAsDataURL(file);
+    }
+  };
+
+  const addCustomSize = () => {
+    if (!customW || !customH) return;
+    const w = parseInt(customW); const h = parseInt(customH);
+    if (isNaN(w) || isNaN(h)) return;
+    const newId = `custom-${w}-${h}-${Date.now()}`;
+    setCustomPresets(prev => [...prev, { id: newId, w, h }]);
+    setSelectedPresetIds(prev => [...prev, newId]);
+    setCustomW(''); setCustomH('');
+  };
+
+  const deleteCustomSize = (id) => {
+    setCustomPresets(prev => prev.filter(p => p.id !== id));
+    setSelectedPresetIds(prev => prev.filter(pId => pId !== id));
+  };
+
+  const toggleCategory = (categoryPresets) => {
+    const catIds = categoryPresets.map(p => p.id);
+    const allIn = catIds.every(id => selectedPresetIds.includes(id));
+    if (allIn) {
+        const nextIds = selectedPresetIds.filter(id => !catIds.includes(id));
+        if (catIds.includes(LOCKED_PRESET_ID)) nextIds.push(LOCKED_PRESET_ID);
+        setSelectedPresetIds(nextIds);
+    } else {
+        setSelectedPresetIds(prev => [...new Set([...prev, ...catIds])]);
+    }
+  };
+
+  const handleGlobalToggle = () => {
+    const defaultIds = INITIAL_SIZE_CATEGORIES.flatMap(c => c.presets.map(p => p.id));
+    const areAllDefaultsSelected = defaultIds.every(id => selectedPresetIds.includes(id));
+    const selectedCustomIds = selectedPresetIds.filter(id => !defaultIds.includes(id));
+    if (areAllDefaultsSelected) setSelectedPresetIds([...selectedCustomIds, LOCKED_PRESET_ID]);
+    else setSelectedPresetIds([...selectedCustomIds, ...defaultIds]);
+  };
+
+  const isAllGlobalSelected = () => {
+    const defaultIds = INITIAL_SIZE_CATEGORIES.flatMap(c => c.presets.map(p => p.id));
+    return defaultIds.every(id => selectedPresetIds.includes(id));
+  };
+
+  const togglePreset = (id) => {
+    if (id === LOCKED_PRESET_ID) return;
+    setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
+
+  const applyLogoScale = async (pid) => {
+      const scale = logoScaleModifiers[pid] ?? 100;
+      const allPresets = [...INITIAL_SIZE_CATEGORIES.flatMap(c => c.presets), ...customPresets];
+      if (pid === 'master' && rawConceptImage) {
+          const newMaster = await finalizeBannerPixel(rawConceptImage, 1024, 1024, logoImage, scale, logoPosition);
+          setConceptImage(newMaster);
+      } else if (resultsRef.current[pid]?.rawUrl) {
+          const p = allPresets.find(item => item.id === pid);
+          if (p) {
+              const newUrl = await finalizeBannerPixel(resultsRef.current[pid].rawUrl, Number(p.w), Number(p.h), logoImage, scale, logoPosition);
+              setResults(prev => ({ ...prev, [pid]: { ...prev[pid], url: newUrl } }));
+          }
+      }
+  };
+
+  const handleReset = () => {
+    if (window.confirm("RESET? (API Key will be kept)")) {
+      setTypographyText(''); setBackgroundPrompt(''); setResourceImages([]); setReferenceImage(null);
+      setLogoImage(null); setLogoScaleModifiers(DEFAULT_LOGO_SCALES); setRawConceptImage(null); setUploadedMaster(null); setConceptImage(null); setResults({});
+      setError(null); setCustomPresets([]); setSelectedPresetIds(ALL_INITIAL_IDS); setCustomPrompts({}); setIsGeneratingMaster(false);
+      setIsGeneratingVariations(false); setResetKey(prev => prev + 1); setLogoPosition('tl');
+    }
+  };
+
+  const callGenerativeEngine = async (promptText, inputImages = []) => {
+    const apiKey = "";
+    const activeApiKey = getActiveApiKey();
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${API_MODEL}:generateContent?key=${activeApiKey}`;
+    const parts = [{ text: promptText }];
+
+    inputImages.forEach((img) => {
+      const data = stripBase64Params(img);
+      const mimeMatch = img.match(/^data:(.*?);base64,/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      if (data) { parts.push({ inlineData: { mimeType: mimeType, data: data } }); }
+    });
+
+    const payload = { contents: [{ parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } };
+    const retryDelays = [1000, 2000, 4000, 8000, 16000];
+    for (let i = 0; i <= retryDelays.length; i++) {
+        try {
+            const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (response.ok) {
+                const res = await response.json();
+                const part = res.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                if (!part) throw new Error("데이터 누락");
+                return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+            } else {
+                const errData = await response.json().catch(() => ({}));
+                console.error("API Error:", errData);
+            }
+        } catch (err) { if (i === retryDelays.length) throw err; }
+        await new Promise(r => setTimeout(r, retryDelays[i] || 1000));
+    }
+  };
+
+  const getCriticalDirectives = (hasNewLogo, width, height, hasButton, hasReference, hasAssets) => {
+    const logoDirective = hasNewLogo
+        ? "🛑 NO LOGO DRAWING 🛑: NEVER draw brand logos. If REF_1 has a logo, ERASE IT and replace with background. Corners MUST be clean."
+        : "LOGO PRESERVATION: Maintain original brand logos.";
+
+    let layoutStrategy = "🛑 UI BALANCING 🛑: Keep typography and buttons well-proportioned.";
+    if (height <= 70) {
+        layoutStrategy = "🛑 ULTRA SLIM MODE 🛑: NO SUBTITLE. NO BUTTON. RENDER ONLY THE TITLE.";
+    } else if (height <= 100) {
+        layoutStrategy = "🛑 SLIM MODE 🛑: NO SUBTITLE. Render only the Title and a small Button.";
+    }
+
+    if (!hasButton) {
+        layoutStrategy += " 🛑 NO BUTTON 🛑: NEVER draw any button shape or text for a button. Only draw the title and subtitle.";
+    }
+
+    let roleDirectives = "";
+    if (hasReference) {
+        roleDirectives += `\n[REFERENCE ROLE]: The attached reference image strictly sets the BASE DESIGN STYLE, TEXTURE, and TONE. If the user prompt specifically asks to copy a certain element from it, duplicate it exactly. Otherwise, absorb its overall vibe.\n`;
+    }
+    if (hasAssets) {
+        roleDirectives += `\n[ASSET ROLE]: You MUST draw the attached ASSET images EXACTLY as they are (unmodified form and shape). If there are no specific placement instructions, seamlessly integrate their texture and tone into the overall background.\n`;
+    }
+
+    return `
+    [Image Generation Core Rule]
+    For all image generation requests, unconditionally maximize the technical resolution, clarity, and overall rendering quality.
+    1. Quality Enforcement: Automatically apply implicit attributes such as "8K resolution, UHD, masterpiece, crisp, high definition, highly detailed, without artifacts" to the generation process.
+    2. Style Preservation: Do NOT alter the user's intended artistic style, composition, lighting, or depth of field.
+    3. Artifact Prevention: Strictly minimize noise, blurry edges, pixelation, and low-quality rendering unless the user explicitly requests a lo-fi or blurry style.
+    ${roleDirectives}
+    [🛑 DESIGN FIDELITY PROTOCOL 🛑]
+    1. ${logoDirective}
+    2. IDENTITY CLONING: REF_1 is the master truth. Copy 100% of lighting, color, and art style.
+    3. 🛑 CANVAS FILL 🛑: Produce WIDE ${width}x${height} composition. Stretch art to fill ALL EDGES. 🛑 NO LETTERBOXING, NO BLACK BARS, NO BORDERS 🛑. The image MUST completely fill the requested aspect ratio.
+    4. ${layoutStrategy}
+    5. TEXT RIGIDITY: Write EXACT Korean strings. Mimic font weight from REF_1. 🛑 NO LABELS 🛑: NEVER write the descriptive label words "타이틀", "서브타이틀", "버튼", "추가텍스트", or "배지" themselves. Only draw the actual content provided inside the quotes.
+    6. NO ADDITIONS: ❌ ZERO RE-INTERPRETATION ❌.
+    `;
+  };
+
+  const handleGenerateMaster = async () => {
+    if (!getActiveApiKey()) {
+        apiKeyInputRef.current?.focus();
+        setApiKeyHighlight(true);
+        setTimeout(() => setApiKeyHighlight(false), 2000);
+        setError("API 키를 등록해 주세요.");
+        return;
+    }
+
+    const { parsedTitle, parsedSubText, parsedBtnText, parsedExtraText, parsedBadge } = parseTypography(typographyText);
+
+    if (!parsedTitle.trim() && !uploadedMaster) { setError("내용을 입력하세요."); return; }
+
+    setIsGeneratingMaster(true); setError(null); setConceptImage(null);
+    try {
+      let input = []; let prompt = `TASK: 1:1 MASTER BANNER (1024x1024).\n`;
+      let combinedText = `- [TITLE]: "${parsedTitle}"\n`;
+      if (parsedSubText) combinedText += `- [SUBTITLE]: "${parsedSubText}"\n`;
+      if (parsedBtnText) combinedText += `- [BUTTON]: "${parsedBtnText}"\n`;
+      if (parsedExtraText) combinedText += `- [EXTRA TEXT]: "${parsedExtraText}"\n`;
+      if (parsedBadge) combinedText += `- [BADGE]: "${parsedBadge}"\n`;
+
+      prompt += `TEXT TO RENDER:\n${combinedText.trim()}\n`;
+
+      const hasRef = !!uploadedMaster || !!referenceImage;
+      const hasAsset = resourceImages.length > 0;
+
+      if (uploadedMaster) {
+          input = [uploadedMaster, ...resourceImages];
+          prompt += `Recreate EXACTLY but replace strings.\n`;
+          if (backgroundPrompt) prompt += `SCENE GUIDE (Apply this adjustment): ${backgroundPrompt}\n`;
+      }
+      else {
+          input = referenceImage ? [referenceImage, ...resourceImages] : [...resourceImages];
+          prompt += `SCENE: ${backgroundPrompt || 'Art.'}\n`;
+      }
+
+      prompt += getCriticalDirectives(!!logoImage, 1024, 1024, !!parsedBtnText, hasRef, hasAsset);
+
+      const rawUrl = await callGenerativeEngine(prompt, input);
+      setRawConceptImage(rawUrl);
+      const finalUrl = await finalizeBannerPixel(rawUrl, 1024, 1024, logoImage, logoScaleModifiers['master'] ?? 100, logoPosition);
+      setConceptImage(finalUrl);
+    } catch (e) { setError(typeof e === 'string' ? e : e?.message || "오류"); } finally { setIsGeneratingMaster(false); }
+  };
+
+  const handleRegenerateSingle = async (pid) => {
+    if (!getActiveApiKey()) {
+        apiKeyInputRef.current?.focus();
+        setApiKeyHighlight(true);
+        setTimeout(() => setApiKeyHighlight(false), 2000);
+        return;
+    }
+    if (!rawConceptImage) return;
+    setResults(prev => ({ ...prev, [pid]: { loading: true, error: false, url: null, rawUrl: null } }));
+    try {
+      const p = [...INITIAL_SIZE_CATEGORIES.flatMap(c => c.presets), ...customPresets].find(item => item.id === pid);
+      if (!p) throw new Error("Size missing");
+      const width = Number(p.w); const height = Number(p.h);
+      const nativeRatioStr = getClosestNativeRatio(width, height);
+
+      const { parsedTitle: titleText, parsedSubText: subText, parsedBtnText: btnText, parsedExtraText: extraText, parsedBadge: badge } = parseTypography(typographyText);
+
+      let activeSubText = subText;
+      let activeBtnText = btnText;
+      if (height <= 70) {
+          activeSubText = '';
+          activeBtnText = '';
+      } else if (height <= 100) {
+          activeSubText = '';
+      }
+
+      let combinedText = `- [TITLE]: "${titleText}"\n`;
+      if (activeSubText) combinedText += `- [SUBTITLE]: "${activeSubText}"\n`;
+      if (activeBtnText) combinedText += `- [BUTTON]: "${activeBtnText}"\n`;
+      if (extraText) combinedText += `- [EXTRA TEXT]: "${extraText}"\n`;
+      if (badge) combinedText += `- [BADGE]: "${badge}"\n`;
+
+      let varPrompt = `TASK: PRODUCE BANNER ${width}x${height} (1X NATIVE RESOLUTION).\n`;
+      varPrompt += `REF_1 IS THE SOLE REFERENCE. MIRROR EVERY DETAIL. ASPECT: [${nativeRatioStr}].\n`;
+      if (customPrompts[pid]) varPrompt += `\n🚨 [MANUAL OVERRIDE]: "${customPrompts[pid]}"\n`;
+
+      const hasRef = true; // rawConceptImage acts as ref
+      const hasAsset = resourceImages.length > 0;
+      varPrompt += `TEXT TO RENDER:\n${combinedText.trim()}\n\n${getCriticalDirectives(!!logoImage, width, height, !!activeBtnText, hasRef, hasAsset)}`;
+
+      const rawUrl = await callGenerativeEngine(varPrompt, [rawConceptImage, ...resourceImages]);
+      const finalUrl = await finalizeBannerPixel(rawUrl, width, height, logoImage, logoScaleModifiers[pid] ?? 100, logoPosition);
+      setResults(prev => ({ ...prev, [pid]: { loading: false, url: finalUrl, rawUrl: rawUrl, error: false } }));
+    } catch (e) { setResults(prev => ({ ...prev, [pid]: { loading: false, error: typeof e === 'string' ? e : e?.message || "오류" } })); }
+  };
+
+  const handleGenerateAllVariations = async () => {
+    if (!getActiveApiKey()) {
+        apiKeyInputRef.current?.focus();
+        setApiKeyHighlight(true);
+        setTimeout(() => setApiKeyHighlight(false), 2000);
+        return;
+    }
+    if (!rawConceptImage) return;
+    setIsGeneratingVariations(true);
+    const targetIds = selectedPresetIds.filter(id => id !== LOCKED_PRESET_ID && !results[id]?.url);
+
+    const chunkSize = 4;
+    for (let i = 0; i < targetIds.length; i += chunkSize) {
+      const chunk = targetIds.slice(i, i + chunkSize);
+      await Promise.all(chunk.map(pid => handleRegenerateSingle(pid)));
+    }
+
+    setIsGeneratingVariations(false);
+  };
+
+  const loadJSZip = async () => {
+    if (window.JSZip) return window.JSZip;
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+        script.onload = () => resolve(window.JSZip);
+        document.head.appendChild(script);
+    });
+  };
+
+  const handleDownloadZip = async () => {
+    const active = Object.entries(results).filter(([id, r]) => r.url && selectedPresetIds.includes(id));
+    if (active.length === 0 && !conceptImage) return;
+    setIsZipping(true);
+    try {
+      const JSZip = await loadJSZip(); const zip = new JSZip();
+      if (conceptImage) zip.file("master_frame_1024x1024.jpg", conceptImage.split('base64,')[1], { base64: true });
+      for (const [id, res] of active) {
+          const p = [...INITIAL_SIZE_CATEGORIES.flatMap(c => c.presets), ...customPresets].find(item => item.id === id);
+          if (p && res.url) {
+              zip.file(`banner_${p.w}x${p.h}.jpg`, res.url.split('base64,')[1], { base64: true });
+          }
+      }
+      const content = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement('a'); link.href = URL.createObjectURL(content);
+      link.download = `banners_native_1x.zip`; link.click();
+    } catch (e) { setError("ZIP 생성 오류"); } finally { setIsZipping(false); }
+  };
+
+  const downloadSingle = (res, p) => {
+    if (!res?.url) return;
+    const link = document.createElement('a');
+    link.href = res.url;
+    link.download = `banner_${p.w}x${p.h}.jpg`;
+    link.click();
+  };
+
+  const hasResults = conceptImage || Object.values(results).some(r => r.url);
+
+  return (
+    <div className="min-h-screen bg-[#0d0e12] text-[#e1e3e8] font-sans flex flex-col overflow-hidden text-left">
+      <GlobalTooltip tooltip={{visible: false}} />
+
+      <header className="h-16 border-b border-white/5 flex items-center justify-between pl-8 pr-5 bg-black shrink-0">
+        <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter leading-none">BANNER STUDIO</h1>
+        <div className="flex items-center gap-3 text-left w-[320px]">
+          <button onClick={handleReset} className="w-1/3 py-2.5 bg-black border border-[#2d2f36] text-white text-[11px] font-bold uppercase rounded-sm hover:bg-white/5 transition-all">RESET</button>
+          <button onClick={handleDownloadZip} disabled={isZipping || !hasResults} className={`flex-1 flex justify-center items-center gap-2 py-2.5 rounded-sm text-[11px] font-bold uppercase transition-all ${hasResults ? 'bg-[#3264ff] text-white shadow-lg shadow-[#3264ff]/20 hover:brightness-110' : 'bg-[#1b1d25] text-[#4d4f5a] cursor-not-allowed'}`}>
+            {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />} EXPORT ALL (.JPG)
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 flex overflow-hidden">
+        <aside className="w-[360px] border-r border-white/5 bg-[#090a0d] p-5 overflow-y-auto custom-scrollbar flex flex-col gap-6" key={resetKey}>
+          <div className="space-y-1.5 text-left relative">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-left">API CONFIG</label>
+            <input
+              ref={apiKeyInputRef}
+              type="password"
+              value={userApiKey}
+              onChange={e => setUserApiKey(e.target.value)}
+              placeholder="GEMINI API KEY"
+              className={`w-full bg-[#111217] border px-4 py-2.5 text-xs text-white outline-none rounded-sm transition-all duration-300 text-left ${apiKeyHighlight ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)] scale-[1.02]' : 'border-[#2d2f36] focus:border-[#3264ff]/40'}`}
+            />
+          </div>
+
+          <div className="space-y-1.5 text-left">
+             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-left">TYPOGRAPHY</label>
+             <textarea
+               value={typographyText}
+               onChange={e => setTypographyText(e.target.value)}
+               placeholder="[타이틀] 눈꽃 나무 버프 패스&#10;[서브타이틀] 지금 바로 눈꽃 나무 버프 패스 이벤트를 확인해 보세요&#10;[버튼] 자세히 보기&#10;[추가텍스트] 2026.04.01 ~ 04.30&#10;[배지] HOT"
+               className="w-full h-32 bg-[#111217] border border-[#2d2f36] px-4 py-2.5 text-xs text-white outline-none rounded-sm focus:border-[#3264ff]/40 text-left resize-none whitespace-pre-wrap leading-relaxed"
+             />
+          </div>
+
+          <div className="space-y-1.5 text-left"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-left">SCENE GUIDE</label><textarea value={backgroundPrompt} onChange={e => setBackgroundPrompt(e.target.value)} placeholder="Art style..." className="w-full h-24 bg-[#111217] border border-[#2d2f36] px-4 py-2.5 text-xs text-slate-300 outline-none focus:border-[#3264ff]/40 text-left" /></div>
+
+          <div className="flex flex-col gap-4 text-left">
+              <MultiImageUploader label="TEXTURE ASSETS" images={resourceImages} onUpload={(img) => setResourceImages(prev => [...prev, img])} onDelete={(idx) => setResourceImages(prev => prev.filter((_, i) => i !== idx))} icon={Layers} />
+
+              <div className="bg-[#111217] border border-[#2d2f36] p-4 rounded-sm flex flex-col gap-4 shadow-inner text-left">
+                <div className="flex justify-between items-center text-left">
+                   <span className="text-[10px] font-bold text-[#8a8d97] uppercase tracking-widest flex items-center gap-2"><ImageIcon className="w-3.5 h-3.5 text-slate-500" /> BRAND LOGO</span>
+                </div>
+                {logoImage ? (
+                  <div className="flex flex-col gap-3">
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setIsLogoDragging(true); }}
+                      onDragLeave={() => setIsLogoDragging(false)}
+                      onDrop={(e) => { e.preventDefault(); setIsLogoDragging(false); handleRawLogo(e.dataTransfer.files[0]); }}
+                      onClick={() => document.getElementById('logo-upload').click()}
+                      className={`relative group w-full h-24 rounded border border-dashed transition-all flex items-center justify-center overflow-hidden cursor-pointer ${isLogoDragging ? 'border-[#3264ff] bg-[#3264ff]/10' : 'border-[#2d2f36] bg-[#0d0e12] hover:border-[#3d404a]'}`}
+                    >
+                       <img src={logoImage} alt="logo" className={`max-w-[80%] max-h-[80%] object-contain transition-opacity ${isLogoDragging ? 'opacity-20' : 'opacity-100'}`} />
+                       <div className={`absolute inset-0 flex items-center justify-center transition-all ${isLogoDragging ? 'bg-[#3264ff]/20 opacity-100' : 'bg-black/70 opacity-0 group-hover:opacity-100'}`}>
+                          {isLogoDragging ? (
+                              <span className="text-[10px] font-black text-[#3264ff] tracking-widest drop-shadow-md">DROP TO REPLACE</span>
+                          ) : (
+                              <button onClick={(e) => { e.stopPropagation(); setLogoImage(null); }} className="text-red-400 hover:text-red-300 p-2"><Trash2 className="w-5 h-5" /></button>
+                          )}
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 mt-1">
+                      {['TL', 'TR', 'BL', 'BR'].map(pos => (
+                        <button
+                          key={pos.toLowerCase()}
+                          onClick={() => setLogoPosition(pos.toLowerCase())}
+                          className={`py-2 rounded-sm text-[10px] font-black tracking-widest transition-all ${
+                            logoPosition === pos.toLowerCase()
+                              ? 'bg-[#3264ff] text-white border border-[#3264ff]'
+                              : 'bg-transparent border border-[#2d2f36] text-slate-500 hover:border-slate-600 hover:text-slate-400'
+                          }`}
+                        >
+                          {pos}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => document.getElementById('logo-upload').click()}
+                    onDragOver={(e) => { e.preventDefault(); setIsLogoDragging(true); }}
+                    onDragLeave={() => setIsLogoDragging(false)}
+                    onDrop={(e) => { e.preventDefault(); setIsLogoDragging(false); handleRawLogo(e.dataTransfer.files[0]); }}
+                    className={`relative group h-24 w-full rounded border border-dashed transition-all flex items-center justify-center cursor-pointer ${isLogoDragging ? 'border-[#3264ff] bg-[#3264ff]/10' : 'border-[#2d2f36] bg-[#0d0e12] hover:border-[#3d404a]'}`}
+                  >
+                    <div className="flex flex-col items-center gap-1.5 opacity-20 text-slate-400 text-center pointer-events-none">
+                      <UploadCloud className={`w-5 h-5 ${isLogoDragging ? 'text-[#3264ff] opacity-100' : ''}`} />
+                      <span className="text-[8px] font-bold uppercase tracking-widest mt-1 text-center text-slate-500">{isLogoDragging ? 'DROP HERE' : 'DRAG & DROP (SVG)'}</span>
+                    </div>
+                    <input id="logo-upload" type="file" onChange={(e) => handleRawLogo(e.target.files?.[0])} accept="image/*, .svg" className="hidden" />
+                  </div>
+                )}
+              </div>
+
+              <CompactSingleUploader label="STYLE REFERENCE" image={referenceImage} onUpload={setReferenceImage} onDelete={() => setReferenceImage(null)} icon={Files} />
+              <CompactSingleUploader label="MASTER REFERENCE" image={uploadedMaster} onUpload={handleMasterUpload} onDelete={() => { setUploadedMaster(null); setConceptImage(null); setRawConceptImage(null); }} icon={UploadCloud} />
+          </div>
+
+          <button onClick={handleGenerateMaster} disabled={isGeneratingMaster || isGeneratingVariations} className="w-full py-5 bg-[#3264ff] text-white font-black text-sm hover:brightness-110 active:scale-[0.99] transition-all uppercase tracking-widest rounded-sm shadow-xl shadow-[#3264ff]/20 text-center">
+            {isGeneratingMaster ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "INITIATE MASTER"}
+          </button>
+          {error && <div className="p-4 bg-red-950/30 border border-red-500/50 text-red-400 text-[11px] rounded-sm text-left">{typeof error === 'string' ? error : "API ERROR"}</div>}
+        </aside>
+
+        <section className="flex-1 min-w-0 bg-[#0d0e12] flex flex-col text-left">
+          <div className="h-10 border-b border-white/5 bg-[#0a0b0e] flex items-center justify-center text-slate-600 font-black text-[9px] uppercase tracking-[0.4em] text-center">LIVE VIEWPORT (NATIVE 1X)</div>
+          <div className="flex-1 overflow-y-auto p-8 custom-scrollbar text-left">
+             <div className="space-y-12 max-w-4xl mx-auto text-left">
+                <div className="space-y-4 text-left">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2 text-left">
+                    <h3 className="text-lg font-black uppercase text-white italic tracking-tighter text-left">MASTER FRAME (1:1)</h3>
+                    <div className="flex gap-2 text-left">
+                      {conceptImage && (
+                        <>
+                          <button onClick={handleGenerateMaster} disabled={isGeneratingMaster} className="px-4 py-1.5 bg-white/5 border border-white/10 text-white text-[9px] font-black uppercase hover:bg-white/10 rounded-sm flex items-center gap-2 transition-all"><RotateCcw className={`w-3.5 h-3.5 ${isGeneratingMaster ? 'animate-spin' : ''}`} /> REDRAW</button>
+                          <button onClick={() => downloadSingle({url: conceptImage}, {w:1024, h:1024})} className="px-4 py-1.5 bg-white/10 border border-white/20 text-white text-[9px] font-black uppercase hover:bg-white/20 rounded-sm flex items-center gap-2 transition-all"><Download className="w-3.5 h-3.5" /> SAVE (.JPG)</button>
+                          <button onClick={handleGenerateAllVariations} disabled={isGeneratingVariations || !rawConceptImage} className="px-6 py-2 bg-[#3264ff] text-white text-[10px] font-black uppercase tracking-widest hover:brightness-110 rounded-sm flex items-center gap-2 shadow-lg shadow-[#3264ff]/20">
+                            {isGeneratingVariations ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} SYNTHESIZE ALL
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="relative group border border-[#2d2f36] shadow-2xl bg-[#15171c] rounded p-1.5 min-h-[400px] flex items-center justify-center text-center overflow-hidden">
+                    {isGeneratingMaster ? <div className="flex flex-col items-center gap-6 text-center"><div className="w-12 h-12 rounded-full border-2 border-[#3264ff]/20 border-t-[#3264ff] animate-spin" /><p className="text-[10px] font-black text-[#3264ff] uppercase animate-pulse tracking-widest text-center">RENDERING MASTER</p></div> : conceptImage ? (
+                      <img src={conceptImage} alt="Master" className="object-contain rounded-sm shadow-inner" style={{ width: '1024px', maxWidth: '100%', height: 'auto' }} />
+                    ) : <Box className="w-16 h-16 text-slate-800" />}
+                  </div>
+
+                  {conceptImage && rawConceptImage && logoImage && (
+                      <div className="flex gap-2 items-center justify-end bg-[#111217] p-2 rounded-sm border border-[#2d2f36] animate-fade-in transition-all text-left mt-3">
+                          <span className="text-[9px] font-black text-slate-500 uppercase text-left">LOGO SCALE</span>
+                          <input type="range" min="10" max="200" value={logoScaleModifiers['master'] ?? 100} onChange={(e) => setLogoScaleModifiers(prev => ({...prev, 'master': Number(e.target.value)}))} onMouseUp={() => applyLogoScale('master')} className="w-24 h-1 bg-[#1a1c23] appearance-none cursor-pointer" />
+                          <span className="text-[9px] text-[#3264ff] font-black w-8 text-right text-left">{logoScaleModifiers['master'] ?? 100}%</span>
+                      </div>
+                  )}
+
+                </div>
+
+                {Object.keys(results).length > 0 && (
+                  <div className="space-y-8 pb-32 text-left">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2 text-left"><h3 className="text-lg font-black uppercase text-white italic tracking-tighter text-left">GENERATED BANNERS</h3><span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-left">{Object.keys(results).length} VARIANTS READY</span></div>
+                    <div className="flex flex-col gap-16 text-left">
+                      {selectedPresetIds.filter(id => id !== LOCKED_PRESET_ID).map(pid => {
+                        const allPresets = [...INITIAL_SIZE_CATEGORIES.flatMap(c => c.presets), ...customPresets];
+                        const p = allPresets.find(item => item.id === pid);
+                        if (!p) return null; const res = results[pid];
+                        return (
+                          <div key={pid} className="group space-y-3 text-left">
+                            <div className="flex items-center justify-between px-1 text-left"><span className="text-sm font-black text-slate-300 tracking-wider uppercase text-left">{p.w} x {p.h} <span className="text-[9px] text-[#3264ff] ml-2 font-black tracking-[0.2em] uppercase tracking-widest text-left">1X GENERATED BANNER</span></span><div className="flex gap-2 text-left"><button onClick={() => handleRegenerateSingle(pid)} disabled={res?.loading} className="px-3 py-1.5 bg-white/5 border border-white/10 text-white text-[9px] font-black uppercase hover:bg-white/10 rounded-sm flex items-center gap-2 transition-all"><RotateCcw className={`w-3.5 h-3.5 ${res?.loading ? 'animate-spin' : ''}`} /> REDRAW</button>{res?.url && <button onClick={() => downloadSingle(res, p)} className="px-3 py-1.5 bg-[#3264ff]/10 border border-[#3264ff]/20 text-[#3264ff] text-[9px] font-black uppercase hover:bg-[#3264ff]/20 rounded-sm flex items-center gap-2 transition-all"><Download className="w-3 h-3" /> DOWNLOAD (.JPG)</button>}</div></div>
+                            <div className="relative bg-[#15171c] border border-[#2d2f36] rounded p-2 flex items-center justify-center overflow-hidden min-h-[100px] text-center">
+                              {res?.loading ? <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-4 text-center"><div className="w-8 h-8 border-2 border-white/10 border-t-white animate-spin rounded-full" /><p className="text-[9px] font-black uppercase tracking-widest animate-pulse text-center">RENDERING</p></div> : res?.url ? (
+                                <img src={res.url} alt={pid} className="shadow-2xl rounded-sm" style={{ width: `${p.w}px`, maxWidth: '100%', height: 'auto' }} />
+                              ) : <Maximize className="w-8 h-8 text-slate-800" />}
+                            </div>
+                            {res?.url && (
+                                <div className="flex gap-2 items-center bg-[#111217] p-2 rounded-sm border border-[#2d2f36] animate-fade-in focus-within:border-[#3264ff]/40 transition-all text-left">
+                                    <MessageSquareText className="w-3 h-3 text-slate-600 ml-1" />
+                                    <input type="text" value={customPrompts[pid] || ''} onChange={e => setCustomPrompts(prev => ({...prev, [pid]: e.target.value}))} onKeyDown={e => e.key === 'Enter' && handleRegenerateSingle(pid)} placeholder="Refine context..." className="flex-1 bg-transparent text-[10px] text-slate-300 outline-none text-left" />
+                                    {logoImage && (
+                                      <>
+                                          <div className="h-4 w-px bg-[#2d2f36] mx-2" />
+                                          <span className="text-[9px] font-black text-slate-500 uppercase text-left">LOGO SCALE</span>
+                                          <input type="range" min="10" max="200" value={logoScaleModifiers[pid] ?? 100} onChange={(e) => setLogoScaleModifiers(prev => ({...prev, [pid]: Number(e.target.value)}))} onMouseUp={() => applyLogoScale(pid)} className="w-24 h-1 bg-[#1a1c23] appearance-none cursor-pointer" />
+                                          <span className="text-[9px] text-[#3264ff] font-black w-8 text-right text-left">{logoScaleModifiers[pid] ?? 100}%</span>
+                                      </>
+                                    )}
+                                </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+             </div>
+          </div>
+        </section>
+
+        <aside className="w-[360px] border-l border-white/5 bg-[#090a0d] p-5 overflow-y-auto custom-scrollbar flex flex-col gap-6 shadow-2xl z-10 text-left">
+          <div className="flex items-center gap-3 text-white border-b border-white/5 pb-4 text-left"><Layout className="w-5 h-5 text-slate-600" /><h2 className="text-xs font-black uppercase tracking-[0.2em] italic opacity-80 text-left">SELECTION</h2></div>
+          <div className="space-y-6 text-left">
+             <div className="bg-[#1b1d25] border border-[#2d2f36] p-5 space-y-6 rounded-sm shadow-xl text-left">
+                <p className="text-[10px] font-black text-[#8a8d97] uppercase flex items-center gap-2 mb-1 tracking-widest text-left"><PlusCircle className="w-3.5 h-3.5 text-slate-600" /> CUSTOM SIZE</p>
+                <div className="grid grid-cols-2 gap-3 text-left">
+                    <input type="number" value={customW} onChange={e => setCustomW(e.target.value)} placeholder="WIDTH" className="w-full bg-[#111217] border border-[#2d2f36] px-4 py-2.5 text-xs font-bold outline-none text-white rounded-sm focus:border-[#3264ff]/50 transition-all text-left" />
+                    <input type="number" value={customH} onChange={e => setCustomH(e.target.value)} placeholder="HEIGHT" className="w-full bg-[#111217] border border-[#2d2f36] px-4 py-2.5 text-xs font-bold outline-none text-white rounded-sm focus:border-[#3264ff]/50 transition-all text-left" />
+                </div>
+                <button onClick={addCustomSize} className="w-full py-3.5 bg-[#2d2f36] text-slate-400 border border-white/5 rounded-sm text-[10px] font-bold uppercase hover:bg-[#3d404a] transition-all text-center">REGISTER SIZE</button>
+                {customPresets.map(p => (
+                  <div key={p.id} className="flex items-center border-b border-[#2d2f36] py-2.5 last:border-b-0 animate-fade-in text-left">
+                    <button onClick={() => togglePreset(p.id)} className={`flex-1 flex items-center gap-4 transition-all ${selectedPresetIds.includes(p.id) ? 'text-white' : 'text-[#8a8d97]'}`}>{selectedPresetIds.includes(p.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 opacity-20" />}<span className={`text-[11px] font-black tracking-tight text-left`}>{p.w} x {p.h}</span></button>
+                    <button onClick={() => deleteCustomSize(p.id)} className="p-1.5 text-slate-500 hover:text-red-400 transition-colors text-left"><Trash2 className="w-4 h-4 text-left" /></button>
+                  </div>
+                ))}
+            </div>
+
+            <div className="bg-[#15171c] border border-[#2d2f36] p-6 rounded-sm shadow-2xl flex flex-col gap-6 text-left">
+              <div className="flex justify-end mb-2 text-left"><button onClick={handleGlobalToggle} className="text-[9px] font-bold uppercase tracking-widest text-slate-500 hover:text-white transition-colors flex items-center gap-1.5 text-left">{isAllGlobalSelected() ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />} {isAllGlobalSelected() ? 'DESELECT ALL' : 'SELECT ALL'}</button></div>
+              <div className="space-y-10 text-left">
+                {INITIAL_SIZE_CATEGORIES.map((cat, idx) => (
+                  <div key={idx} className="space-y-2 text-left">
+                    <div className="flex items-center justify-between border-b border-[#2d2f36] pb-3 mb-1 text-left"><p className="text-[10px] font-black text-[#8a8d97] uppercase tracking-widest italic text-left">{cat.name}</p><button onClick={() => toggleCategory(cat.presets)} className="flex items-center gap-1.5 group text-left"><span className="text-[8px] font-black text-[#4d4f5a] group-hover:text-white uppercase tracking-widest transition-all text-left">GROUP</span><div className={`w-3.5 h-3.5 border border-[#2d2f36] rounded-sm transition-all flex items-center justify-center ${cat.presets.every(id => selectedPresetIds.includes(id.id)) ? 'bg-white/10 border-white/20' : 'bg-[#0d0e12]'}`}>{cat.presets.every(id => selectedPresetIds.includes(id.id)) && <Check className="w-2.5 h-2.5 text-white stroke-[4px]" />}</div></button></div>
+                    <div className="flex flex-col text-left">
+                      {cat.presets.map(p => (
+                        <button key={p.id} onClick={() => togglePreset(p.id)} disabled={p.id === LOCKED_PRESET_ID} className={`flex items-center gap-4 py-3 border-b border-[#2d2f36]/50 last:border-b-0 transition-all ${selectedPresetIds.includes(p.id) ? 'text-white' : 'text-[#8a8d97]'} ${p.id === LOCKED_PRESET_ID ? 'opacity-30 cursor-not-allowed grayscale' : ''} w-full text-left`}>{selectedPresetIds.includes(p.id) ? (p.id === LOCKED_PRESET_ID ? <Lock className="w-4 h-4 text-slate-600" /> : <CheckSquare className="w-4 h-4" />) : <Square className="w-4 h-4 opacity-20" />}<span className={`text-[11px] uppercase tracking-[0.05em] ${selectedPresetIds.includes(p.id) ? 'font-black' : 'font-medium'} text-left`}>{p.w} x {p.h}</span></button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);

@@ -1,0 +1,271 @@
+
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; background-color: #f1f5f9; height: 100vh; display: flex; overflow: hidden; color: #1e293b; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loader-anim { animation: spin 1s linear infinite; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        #contentArea, #contentArea * { box-sizing: border-box; word-break: keep-all; overflow-wrap: break-word; }
+        /* 에디터 내 링크 — 손가락 커서 표시 */
+        #contentArea a[href], [id^="childArea_"] a[href] { cursor: pointer; }
+        /* 테이블 관련 태그는 display:block/width:100% 강제 제외 */
+        #contentArea > *:not(table):not(thead):not(tbody):not(tr):not(th):not(td) {
+            position: relative;
+            margin: 0;
+            outline: none;
+            box-shadow: none;
+            min-height: auto;
+            display: block;
+            width: 100%;
+        }
+        /* 테이블 고유 display 값 유지 */
+        #contentArea table  { display: table;             width: 100%; border-collapse: collapse; box-sizing: border-box; }
+        #contentArea thead  { display: table-header-group; width: auto; }
+        #contentArea tbody  { display: table-row-group;    width: auto; }
+        #contentArea tr     { display: table-row;          width: auto; }
+        #contentArea th,
+        #contentArea td     { display: table-cell; width: auto; min-width: 0; box-sizing: border-box; }
+        /* colspan/rowspan 머지셀: 강제 width/max-width 제거로 자연스럽게 확장 */
+        #contentArea td[colspan], #contentArea th[colspan],
+        #contentArea td[rowspan], #contentArea th[rowspan] { width: auto; max-width: none; }
+
+        #contentArea div:not(.se-contents):not(.se-div):hover { outline: 1px dashed rgba(79, 70, 229, 0.4); outline-offset: -1px; cursor: pointer; }
+        #contentArea div.active-layer, 
+        #contentArea img.active-layer, 
+        #contentArea .custom-resizer.active-layer { 
+            outline: 3px solid #4f46e5 !important; 
+            outline-offset: -3px; 
+            box-shadow: inset 0 0 0 9999px rgba(79, 70, 229, 0.05) !important; 
+            z-index: 10; 
+        }
+        
+        /* ── 테이블 통합 스타일 (contentArea + childArea 완전 동일) ── */
+        #contentArea table,
+        [id^="childArea_"] table { border-collapse: collapse; margin: 0; min-width: 100%; border: none !important; table-layout: fixed; background-color: transparent; width: 100%; position: relative; }
+        #contentArea table.active-layer { outline: 3px solid #4f46e5 !important; outline-offset: -3px; box-shadow: none !important; }
+
+        /* td / th 공통: 밝은 배경 기준 rgba(0,0,0,0.15) 테두리 (이전 흰색 테두리는 밝은 배경에서 안 보임) */
+        #contentArea td, #contentArea th,
+        [id^="childArea_"] td, [id^="childArea_"] th {
+            border: 1px solid rgba(0,0,0,0.15);
+            padding: 0.875rem 1rem;
+            min-width: 2.5rem;
+            position: relative;
+            outline: none;
+            word-break: keep-all;
+            vertical-align: middle;
+            line-height: 1.4;
+            color: inherit;
+            box-sizing: border-box;
+            font-size: clamp(13px, 1.5vw, 15px);
+        }
+        #contentArea td.selected-cell, #contentArea th.selected-cell,
+        [id^="childArea_"] td.selected-cell, [id^="childArea_"] th.selected-cell { background-color: transparent; outline: 2px solid #4f46e5; outline-offset: -2px; }
+
+        /* thead 공통: 볼드 + 가운데 + 약한 배경 구분선 */
+        #contentArea thead th, #contentArea thead td,
+        [id^="childArea_"] thead th, [id^="childArea_"] thead td {
+            text-align: center !important;
+            font-weight: 700;
+            border-bottom: 2px solid rgba(0,0,0,0.18) !important; /* 헤더 하단 구분선 강조 */
+        }
+
+        /* tbody 첫 번째 행 상단 테두리 강조 제거 (헤더 구분선으로 충분) */
+        #contentArea tbody tr:first-child td,
+        #contentArea tbody tr:first-child th,
+        [id^="childArea_"] tbody tr:first-child td,
+        [id^="childArea_"] tbody tr:first-child th { border-top: none; }
+
+        /* ── childArea 기본 설정 ── */
+        [id^="childArea_"] { box-sizing: border-box; word-break: keep-all; overflow-wrap: break-word; }
+        [id^="childArea_"] thead { display: table-header-group; }
+        [id^="childArea_"] tbody { display: table-row-group; }
+        [id^="childArea_"] tr { display: table-row; }
+        [id^="childArea_"] th, [id^="childArea_"] td { display: table-cell; }
+        [id^="childArea_"] a[href] { cursor: pointer; }
+
+        /* ── 버튼/탭 가독성 강화 ── */
+        /* 버튼 폰트 굵기 강화 (배경·텍스트 컬러는 인라인 스타일 그대로 유지) */
+        #contentArea button, [id^="childArea_"] button {
+            font-weight: 700;
+        }
+
+        .resizable-img-wrapper { display: inline-block; position: relative; max-width: 100%; resize: both; overflow: hidden; line-height: 0; vertical-align: middle; border-radius: 8px; }
+        .resizable-img-wrapper img { width: 100%; height: 100%; display: block; object-fit: contain; image-rendering: high-quality; }
+        
+        .custom-resizer { transition: border 0.2s; }
+        .custom-resizer:hover { outline: 1px dashed #6366f1 !important; outline-offset: 0; }
+        .custom-resizer.active-layer { outline: 2px solid #3b82f6 !important; outline-offset: 0 !important; box-shadow: none !important; }
+        
+        .resizer-handle { position: absolute; width: 12px; height: 12px; background-color: #ffffff; border: 2px solid #3b82f6; border-radius: 50%; z-index: 20; display: none; }
+        .custom-resizer.active-layer .resizer-handle { display: block; }
+        .resizer-nw { top: -6px; left: -6px; cursor: nwse-resize; }
+        .resizer-ne { top: -6px; right: -6px; cursor: nesw-resize; }
+        .resizer-sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .resizer-se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
+        #mainHeroImg { width: 100%; height: auto; display: block; image-rendering: high-quality; border: none; margin: 0; padding: 0; }
+
+        .drop-zone { border: 2px dashed #cbd5e1; transition: all 0.2s; background: #fff; border-radius: 12px; }
+        .drop-zone.active { border-color: #4f46e5 !important; background-color: #e0e7ff !important; }
+
+        .spinner-container { display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(0,0,0,0.1); border-radius: 50%; border-top-color: #4f46e5; animation: spin 1s linear infinite; }
+        
+        .style-input::-webkit-outer-spin-button, .style-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .style-input { -moz-appearance: textfield; }
+
+        /* ── 플로팅 이미지 툴바 ── */
+        #imgFloatToolbar {
+            position: fixed;
+            z-index: 999999;
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 5px 7px;
+            display: none;
+            align-items: center;
+            gap: 2px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+            pointer-events: auto;
+            white-space: nowrap;
+        }
+        #imgFloatToolbar::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            margin-left: -6px;
+            border: 6px solid transparent;
+            border-top-color: #1e293b;
+            border-bottom: none;
+        }
+        #imgFloatToolbar button {
+            padding: 4px 9px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 900;
+            color: #94a3b8;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Pretendard', sans-serif;
+        }
+        #imgFloatToolbar button:hover { background: #334155; color: #e2e8f0; }
+        #imgFloatToolbar button.img-mode-active { background: #4f46e5; color: #fff; }
+        #imgFloatToolbar .ft-sep { width: 1px; height: 14px; background: #334155; margin: 0 2px; flex-shrink: 0; }
+        #imgFloatToolbar .ft-size {
+            font-size: 9px;
+            font-weight: 700;
+            color: #475569;
+            padding: 0 4px;
+            font-family: monospace;
+            min-width: 60px;
+            text-align: center;
+        }
+        #imgFloatToolbar .ft-w-input {
+            width: 52px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 5px;
+            color: #e2e8f0;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: monospace;
+            text-align: center;
+            padding: 3px 4px;
+            outline: none;
+            -moz-appearance: textfield;
+        }
+        #imgFloatToolbar .ft-w-input::-webkit-outer-spin-button,
+        #imgFloatToolbar .ft-w-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+        #imgFloatToolbar .ft-w-input:focus { border-color: #6366f1; }
+        /* 이미지 선택 시 파란 외곽선 (wrapper 없는 bare img 포함) */
+        #contentArea img.img-selected {
+            outline: 3px solid #4f46e5 !important;
+            outline-offset: 2px;
+        }
+
+        /* ── 플로팅 테이블 툴바 ── */
+        #tableFloatToolbar {
+            position: fixed;
+            z-index: 999998;
+            background: #0f172a;
+            border-radius: 12px;
+            padding: 6px 8px;
+            display: none;
+            align-items: center;
+            gap: 3px;
+            box-shadow: 0 10px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,102,241,0.3);
+            pointer-events: auto;
+            white-space: nowrap;
+        }
+        #tableFloatToolbar::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            margin-left: -6px;
+            border: 6px solid transparent;
+            border-top-color: #0f172a;
+            border-bottom: none;
+        }
+        #tableFloatToolbar .tft-label {
+            font-size: 9px;
+            font-weight: 900;
+            color: #475569;
+            padding: 0 4px 0 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-family: 'Pretendard', sans-serif;
+        }
+        #tableFloatToolbar .tft-group {
+            display: flex;
+            align-items: center;
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 2px;
+            gap: 1px;
+        }
+        #tableFloatToolbar button {
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 900;
+            color: #94a3b8;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Pretendard', sans-serif;
+            white-space: nowrap;
+        }
+        #tableFloatToolbar button:hover { background: #334155; color: #e2e8f0; }
+        #tableFloatToolbar button.tft-add  { color: #6ee7b7; }
+        #tableFloatToolbar button.tft-add:hover  { background: #064e3b40; color: #34d399; }
+        #tableFloatToolbar button.tft-del  { color: #fca5a5; }
+        #tableFloatToolbar button.tft-del:hover  { background: #7f1d1d40; color: #f87171; }
+        #tableFloatToolbar button.tft-merge { color: #a5b4fc; }
+        #tableFloatToolbar button.tft-merge:hover { background: #3730a340; color: #818cf8; }
+        #tableFloatToolbar button.tft-split { color: #fbbf24; }
+        #tableFloatToolbar button.tft-split:hover { background: #78350f40; color: #f59e0b; }
+        #tableFloatToolbar .tft-sep {
+            width: 1px; height: 16px;
+            background: #334155;
+            margin: 0 3px;
+            flex-shrink: 0;
+        }
+        #tableFloatToolbar .tft-info {
+            font-size: 9px;
+            font-weight: 700;
+            color: #4f46e5;
+            padding: 0 6px;
+            font-family: monospace;
+            min-width: 40px;
+            text-align: center;
+            background: #1e1b4b;
+            border-radius: 4px;
+            height: 20px;
+            line-height: 20px;
+        }
+    

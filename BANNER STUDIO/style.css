@@ -1,0 +1,10 @@
+.custom-scrollbar::-webkit-scrollbar { width: 3px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: #0d0e12; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #2d2f36; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #3264ff; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate-fade-in { animation: fadeIn 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+input[type=range] { -webkit-appearance: none; background: transparent; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%; background: #3264ff; cursor: pointer; margin-top: -4px; box-shadow: 0 0 5px rgba(50,100,255,0.5); }
+input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 3px; background: #2d2f36; border-radius: 2px; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

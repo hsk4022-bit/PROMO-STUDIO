@@ -1,0 +1,54 @@
+{
+  "apiKey": "",
+  "mode": "translate",
+  "banners": [
+    {
+      "filename": "master_1080x1080.png",
+      "url": "/master_1080x1080.png"
+    }
+  ],
+  "csvData": [
+    {
+      "filename": "master_1080x1080.png",
+      "suffix": "en",
+      "original_text": "메이드 카페에서 일하게 된 모험가, 엘리오스에서 특별한 순간을 만들어 드릴게요!, 아르바이트 일지 확인하러 가기",
+      "title": "Adventurer to work at Maid Cafe",
+      "sub_text": "A special moment in Elios!",
+      "sub_sub_text": "",
+      "btn_text": "Shop Now",
+      "file_suffix": "_en",
+      "logo_url": "",
+      "extra": "",
+      "position": "TL",
+      "scale": 100
+    },
+    {
+      "filename": "master_1080x1080.png",
+      "suffix": "jp",
+      "original_text": "메이드 카페에서 일하게 된 모험가, 엘리오스에서 특별한 순간을 만들어 드릴게요!, 아르바이트 일지 확인하러 가기",
+      "title": "メイドカフェで働くことになった冒険家",
+      "sub_text": "エリオスで特別な瞬間をお届けします！",
+      "sub_sub_text": "",
+      "btn_text": "詳しく見る",
+      "file_suffix": "_jp",
+      "logo_url": "",
+      "extra": "",
+      "position": "TL",
+      "scale": 100
+    },
+    {
+      "filename": "master_1080x1080.png",
+      "suffix": "tw",
+      "original_text": "메이드 카페에서 일하게 된 모험가, 엘리오스에서 특별한 순간을 만들어 드릴게요!, 아르바이트 일지 확인하러 가기",
+      "title": "冒險家在女僕咖啡廳工作",
+      "sub_text": "在埃利奧斯給你創造特殊時刻！",
+      "sub_sub_text": "",
+      "btn_text": "查看詳情",
+      "file_suffix": "_tw",
+      "logo_url": "",
+      "extra": "",
+      "position": "TL",
+      "scale": 100
+    }
+  ]
+}

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로모션 자동화 툴</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+    <!-- 플로팅 이미지 툴바 -->
+    <div id="imgFloatToolbar">
+        <button id="imgBtnInline" onclick="setImgStyle('inline')" title="텍스트처럼 인라인 배치">A 글자 취급</button>
+        <div class="ft-sep"></div>
+        <button id="imgBtnBlock" onclick="setImgStyle('block')" title="가로 100% 반응형 배치">🔲 반응형</button>
+        <div class="ft-sep"></div>
+        <button id="imgBtnResize" onclick="setImgStyle('resize')" title="드래그로 자유롭게 크기 조절">📐 자유 리사이징</button>
+        <div class="ft-sep"></div>
+        <span class="ft-size" id="imgSizeLabel">–</span>
+        <div class="ft-sep"></div>
+        <input type="number" id="imgWidthInput" class="ft-w-input" placeholder="W" min="10" max="4000" title="너비(px) 입력 후 Enter — 비율 자동 유지" onkeydown="if(event.key==='Enter'){applyImgWidth();this.blur();}" onblur="applyImgWidth()">
+        <div class="ft-sep"></div>
+        <button onclick="imgCopyAction()" title="이미지 복사 (Ctrl+C)" style="color:#60a5fa;">⧉ 복사</button>
+        <button onclick="imgCutAction()" title="이미지 잘라내기 (Ctrl+X)" style="color:#f59e0b;">✂ 잘라내기</button>
+        <button id="imgBtnPaste" onclick="imgPasteAction()" title="이미지 붙여넣기 (Ctrl+V)" style="color:#34d399; opacity:0.35; pointer-events:none;">⬇ 붙여넣기</button>
+    </div>
+
+    <!-- 플로팅 영상 옵션 툴바 -->
+    <div id="videoOptToolbar" style="display:none;position:fixed;z-index:60001;background:#1e293b;border:1px solid #334155;border-radius:0.5rem;padding:0.25rem 0.5rem;gap:0.25rem;align-items:center;box-shadow:0 4px 16px #0000004d;flex-wrap:wrap;">
+        <button id="vOptAutoplay" class="vopt-btn" title="자동재생">▶ 자동재생</button>
+        <button id="vOptLoop" class="vopt-btn" title="반복재생">🔁 반복</button>
+        <button id="vOptMuted" class="vopt-btn" title="음소거">🔇 음소거</button>
+        <button id="vOptControls" class="vopt-btn" title="플레이바 표시">🎛 플레이바</button>
+    </div>
+    <style>
+    .vopt-btn{font-size:11px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;transition:all .15s;background:#0f172a;color:#94a3b8;}
+    .vopt-btn.vopt-on{background:#3b82f6;color:#fff;border-color:#3b82f6;}
+    .vopt-btn:hover{background:#334155;}
+    .vopt-btn.vopt-on:hover{background:#2563eb;}
+    </style>
+
+    <!-- 플로팅 테이블 툴바 -->
+    <div id="tableFloatToolbar">
+        <span class="tft-label">📊 TABLE</span>
+        <div class="tft-group">
+            <button class="tft-add" onclick="addTableRow()" title="행 추가">행 +</button>
+            <button class="tft-del" onclick="smartDeleteAction('row')" title="행 삭제">행 −</button>
+        </div>
+        <div class="tft-sep"></div>
+        <div class="tft-group">
+            <button class="tft-add" onclick="addTableCol()" title="열 추가">열 +</button>
+            <button class="tft-del" onclick="smartDeleteAction('col')" title="열 삭제">열 −</button>
+        </div>
+        <div class="tft-sep"></div>
+        <button class="tft-merge" onclick="mergeSelectedCells()" title="선택 셀 병합">⊞ 병합</button>
+        <button class="tft-split" id="tblSplitBtn" onclick="splitMergedCell()" title="병합된 셀 나누기" style="display:none;">⊟ 나누기</button>
+        <div class="tft-sep"></div>
+        <span class="tft-info" id="tableSelInfo">–</span>
+        <div class="tft-sep"></div>
+        <button class="tft-merge" onclick="toggleTableLayout()" title="Fixed ↔ 반응형 전환" id="tblLayoutBtn">📱 반응형</button>
+    </div>
+
+    <div id="exportHtmlModal" class="fixed inset-0 bg-slate-900/95 z-[600000] hidden flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white w-[95%] max-w-md flex flex-col rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 class="font-black text-lg text-slate-800">💾 HTML 코드 저장 옵션</h3>
+                <button onclick="closeExportHtmlModal()" class="text-slate-400 hover:text-slate-700 bg-slate-200 hover:bg-slate-300 w-8 h-8 rounded-full font-bold transition-all">✕</button>
+            </div>
+            <div class="p-6 flex flex-col gap-4">
+                <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-[12px] text-indigo-700 leading-relaxed">
+                    <div class="font-black mb-1">📦 ZIP 안에 두 가지 HTML 파일이 동시에 저장됩니다.</div>
+                    <div class="text-indigo-500">
+                        <span class="font-bold text-indigo-700">index_불러오기용.html</span> — 프로모에디터 재불러오기 전용 (상대경로)<br>
+                        <span class="font-bold text-indigo-700">index_cdn.html</span> — 이미지 서버 업로드 후 사용 (절대경로, CDN URL 입력 시)
+                    </div>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <div class="font-bold text-sm text-slate-700 mb-1">🌐 CDN / 이미지 서버 주소 <span class="text-[11px] font-normal text-slate-400">(선택사항 — 비우면 index_cdn.html 미생성)</span></div>
+                    <input type="text" id="htmlCdnUrl" placeholder="예: https://my-image-server.com/promo/" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs outline-none focus:border-indigo-400 mt-1 bg-white">
+                    <p class="text-[10px] text-slate-400 mt-1">* 마지막에 슬래시(/)를 포함해서 입력하세요.</p>
+                </div>
+                <button onclick="executeDownloadHtml()" class="w-full py-3.5 bg-indigo-600 text-white font-black rounded-xl shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                    <span>⬇️ 패키지 다운로드 (ZIP)</span>
+                    <div id="htmlExportSpinner" class="spinner-container hidden !border-t-white !w-4 !h-4"></div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="slicerModal" class="fixed inset-0 bg-slate-900/95 z-[600000] hidden flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white w-[95%] max-w-4xl h-[90vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <div>
+                    <h3 class="font-black text-lg text-slate-800">✂️ 스마트 슬라이드 이미지 HTML 저장</h3>
+                    <p class="text-xs text-slate-500 mt-1">길이에 따라 이미지가 스마트하게 분할되며, 링크 영역은 자동으로 우회합니다. (Retina 해상도 지원)</p>
+                </div>
+                <button onclick="closeSlicerModal()" class="text-slate-400 hover:text-slate-700 bg-slate-200 hover:bg-slate-300 w-8 h-8 rounded-full font-bold transition-all">✕</button>
+            </div>
+            
+            <div class="px-6 py-3 border-b border-slate-200 bg-slate-50 flex items-center shrink-0 flex-wrap gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-black text-indigo-700 bg-indigo-100 px-3 py-1.5 rounded-md" id="autoSliceCountBadge">대기 중...</span>
+                </div>
+                
+                <div class="w-px h-6 bg-slate-300 mx-1"></div>
+                
+                <div class="flex items-center gap-3">
+                    <label class="text-xs font-bold text-slate-600">경로:</label>
+                    <label class="flex items-center gap-1 cursor-pointer text-xs font-medium text-slate-700">
+                        <input type="radio" name="slicerPathType" value="relative" checked onchange="toggleCdnInput('slicer')" class="w-3 h-3 text-indigo-600"> 상대경로
+                    </label>
+                    <label class="flex items-center gap-1 cursor-pointer text-xs font-medium text-slate-700">
+                        <input type="radio" name="slicerPathType" value="absolute" onchange="toggleCdnInput('slicer')" class="w-3 h-3 text-indigo-600"> 절대경로(CDN)
+                    </label>
+                </div>
+                <input type="text" id="slicerCdnUrl" placeholder="https://이미지서버.com/경로/" class="hidden w-56 border border-slate-300 rounded-md p-1.5 text-xs outline-none focus:border-indigo-500 transition-all">
+                
+                <button onclick="executeSliceAndExport()" class="ml-auto px-5 py-2 bg-indigo-600 text-white text-xs font-black rounded-lg shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2">
+                    <span>💾 다운로드 (ZIP)</span>
+                    <div id="exportSpinner" class="spinner-container hidden !border-t-white !w-3 !h-3"></div>
+                </button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto bg-slate-800 relative p-8 flex justify-center" id="slicerCanvasContainer">
+                <div id="slicerLoading" class="text-white font-bold text-center w-full mt-20 animate-pulse hidden">
+                    <div class="loader-anim w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    초고해상도 화면 캡처 및 링크 영역을 분석하고 있습니다...<br>잠시만 기다려주세요.
+                </div>
+                <canvas id="slicerCanvas" class="shadow-2xl bg-white hidden" style="width: 100%; max-width: 840px; height: auto;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <aside class="w-[360px] bg-white border-r border-slate-200 flex flex-col h-full overflow-y-auto shrink-0 p-5 shadow-xl z-50">
+        <div class="mb-6">
+            <h2 class="text-[11px] font-black text-slate-400 tracking-widest mb-4 uppercase" data-promo-studio-hide>ENGINE SETTINGS</h2>
+            <div class="space-y-4">
+                <div data-promo-studio-hide>
+                    <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Gemini API Key</label>
+                    <input type="password" id="apiKeyInput" placeholder="API Key 입력..." class="w-full border border-slate-200 rounded-xl p-3 text-sm outline-none font-bold bg-amber-50/20">
+                </div>
+                <!-- [Notion 연동 영역 — 임시 비활성화]
+                <div class="border border-violet-100 rounded-xl p-3 bg-violet-50/20">
+                    <label class="text-[10px] font-bold text-violet-500 mb-1 block uppercase">Notion Integration Token</label>
+                    <input type="password" id="notionTokenInput" placeholder="secret_xxxx..." class="w-full border border-violet-200 rounded-xl p-2.5 text-xs outline-none font-bold bg-white mb-2">
+                    <label class="text-[9px] font-bold text-violet-400 uppercase block mb-1">기획서 페이지 URL</label>
+                    <div class="flex gap-2 mb-1">
+                        <input type="text" id="notionPageUrlTop" placeholder="Notion 페이지 URL 붙여넣기..." class="flex-1 border border-violet-200 rounded-lg p-2 text-xs outline-none bg-white font-medium">
+                        <button onclick="syncNotionPageUrlToMain()" class="bg-violet-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg hover:bg-violet-700 transition-all whitespace-nowrap">등록</button>
+                    </div>
+                    <input type="hidden" id="notionPageUrl">
+                    <div id="notionRegistered" style="display:none;" class="flex items-center justify-between bg-violet-100 rounded-lg px-3 py-2 mt-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px]">✅</span>
+                            <span id="notionRegisteredTitle" class="text-[10px] font-bold text-violet-700 truncate max-w-[120px]">연동됨</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="notionUpdateAndGenerate()" id="notionUpdateBtn" class="bg-violet-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg hover:bg-violet-700 transition-all flex items-center gap-1">
+                                <span>🔄 업데이트</span>
+                                <div id="notionUpdateSpinner" class="spinner-container hidden"></div>
+                            </button>
+                            <button onclick="clearNotionUrl()" class="text-[10px] text-violet-400 hover:text-red-500 font-bold transition-colors">✕</button>
+                        </div>
+                    </div>
+                </div>
+                [/Notion 연동 영역] -->
+                <!-- 호환성 유지용 hidden inputs -->
+                <input type="hidden" id="notionTokenInput">
+                <input type="hidden" id="notionPageUrlTop">
+                <input type="hidden" id="notionPageUrl">
+                <div id="notionRegistered" style="display:none;"></div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Max Width (px)</label>
+                    <input type="number" id="pageWidthInput" value="840" class="w-full border border-slate-200 rounded-xl p-3 text-sm outline-none font-bold">
+                </div>
+
+            </div>
+        </div>
+
+        <div class="mb-6 border border-indigo-100 p-4 rounded-2xl bg-indigo-50/40 flex flex-col">
+            <h2 class="text-[12px] font-black text-indigo-600 mb-4 uppercase italic">HERO ENGINE</h2>
+            <div class="space-y-3 flex-1 flex flex-col">
+                <textarea id="heroInputForm" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-20 outline-none resize-y bg-white font-medium" placeholder="타이틀: 눈꽃나무 버프패스&#10;서브타이틀: 시즌 한정 이벤트&#10;버튼: 자세히 보기 (없으면 비워두세요)"></textarea>
+                <textarea id="heroStyle" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-20 outline-none resize-y bg-white" placeholder="예) 세련되고 선명한 그래픽 타이포, 깊은 밤하늘, 눈꽃나무 배경"></textarea>
+
+                <!-- 이미지 비율 선택 -->
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black text-slate-500">비율:</span>
+                    <button id="ratioBtn11" onclick="setAspectRatio('1:1')" class="px-3 py-1 text-[10px] font-black rounded-lg border border-indigo-400 bg-indigo-500 text-white transition-colors">1:1</button>
+                    <button id="ratioBtn34" onclick="setAspectRatio('3:4')" class="px-3 py-1 text-[10px] font-black rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition-colors">3:4</button>
+                    <button id="ratioBtn43" onclick="setAspectRatio('4:3')" class="px-3 py-1 text-[10px] font-black rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition-colors">4:3</button>
+                </div>
+                
+                <div id="heroAssetContainer" class="p-2 -mx-2 rounded-xl transition-all border-2 border-transparent relative">
+                    <label class="text-[10px] font-bold text-indigo-400 mb-1 block uppercase pointer-events-none">Assets</label>
+                    <div class="drop-zone p-4 text-center text-[10px] text-slate-400 cursor-pointer rounded-xl bg-white border-2 border-dashed border-indigo-200 hover:bg-indigo-50"
+                        onclick="getById('heroAssetInput').click()"
+                        ondragover="onDragOver(event)"
+                        ondragleave="onDragLeave(event)"
+                        ondrop="onDropAsset(event)">
+                        <span class="pointer-events-none block font-bold text-indigo-500 text-xs">📥 합성용 에셋 드래그 (여기에 놓으세요)</span>
+                    </div>
+                    <div id="assetPreview" class="flex flex-wrap gap-2 mt-2 empty:hidden"></div>
+                </div>
+
+                <!-- 로고 오버레이 -->
+                <div style="border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.875rem;background:#f8fafc;margin-bottom:0.5rem;">
+                <div id="heroLogoContainer" class="rounded-xl">
+                    <label class="text-[11px] font-black text-slate-600 mb-2 block uppercase tracking-wider">Logo Overlay</label>
+                    <!-- 드롭존 -->
+                    <div class="drop-zone py-4 text-center text-[11px] text-slate-400 cursor-pointer rounded-xl bg-white border-2 border-dashed border-slate-200 hover:bg-slate-50 transition-colors"
+                        onclick="getById('heroLogoInput').click()"
+                        ondragover="onDragOver(event)"
+                        ondragleave="onDragLeave(event)"
+                        ondrop="onDropLogo(event)">
+                        <span class="pointer-events-none font-bold text-slate-400">로고 이미지 드래그 or 클릭</span>
+                    </div>
+                    <!-- 미리보기 + 컨트롤: 로고 업로드 후 표시 (좌우 2열) -->
+                    <div id="logoControls" class="hidden mt-3 flex gap-2 items-center" style="min-width:0;">
+                        <!-- 왼쪽: 로고 썸네일 -->
+                        <div id="logoPreview" class="w-[48px] h-[48px] rounded-lg border border-slate-200 bg-white overflow-hidden flex items-center justify-center shrink-0"></div>
+                        <!-- 오른쪽: 위치 + 크기 -->
+                        <div class="flex-1 space-y-1.5" style="min-width:0;">
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] font-black text-slate-500 shrink-0 w-[28px]">위치:</span>
+                                <button id="logoPosLeft" onclick="setLogoPos('left')" class="flex-1 py-1 text-[10px] font-black rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition-colors">왼쪽</button>
+                                <button id="logoPosRight" onclick="setLogoPos('right')" class="flex-1 py-1 text-[10px] font-black rounded-lg border border-indigo-400 bg-indigo-500 text-white transition-colors">오른쪽</button>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] font-black text-slate-500 shrink-0 w-[28px]">로고</span>
+                                <input type="range" id="logoSizeSlider" min="5" max="50" value="14" oninput="updateLogoOverlay()" class="flex-1 accent-indigo-500 cursor-pointer" style="min-width:0;">
+                                <span id="logoSizeLabel" class="text-[10px] font-black text-indigo-500 w-8 text-right shrink-0">14%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+
+                <div id="heroRefContainer" class="p-2 -mx-2 rounded-xl transition-all border-2 border-transparent relative">
+                    <label class="text-[10px] font-bold text-indigo-400 mb-1 block uppercase pointer-events-none">REFERENCE</label>
+                    <div class="drop-zone p-3 text-center text-[10px] text-slate-400 cursor-pointer rounded-xl bg-white border-2 border-dashed border-indigo-200 hover:bg-indigo-50"
+                        onclick="getById('heroRefInput').click()"
+                        ondragover="onDragOver(event)"
+                        ondragleave="onDragLeave(event)"
+                        ondrop="onDropRef(event)">
+                        <span class="pointer-events-none font-bold text-indigo-500">참고 이미지 드래그 (레퍼런스)</span>
+                    </div>
+                    <div id="refPreview" class="flex flex-wrap gap-2 mt-2 empty:hidden"></div>
+                </div>
+
+                <div class="flex items-center gap-2 mb-2">
+                    <input type="checkbox" id="extractColorCheck" checked class="w-3 h-3 cursor-pointer">
+                    <label for="extractColorCheck" class="text-[10px] font-bold text-slate-600 cursor-pointer">생성 이미지에서 배경색 자동 추출 및 반영</label>
+                </div>
+
+                <button onclick="generateHeroImage()" id="heroGenBtn" class="w-full bg-indigo-600 text-white font-black py-3 rounded-xl text-xs shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-auto">
+                    <span>GENERATE</span>
+                    <div id="heroSpinner" class="spinner-container hidden"></div>
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-6 border border-emerald-100 p-4 rounded-2xl bg-emerald-50/40">
+            <h2 class="text-[12px] font-black text-emerald-600 mb-4 uppercase italic">CONTENT ENGINE</h2>
+            <div class="space-y-3">
+                <!-- 직접 입력 -->
+                <div class="relative">
+                    <textarea id="contentData" class="w-full border border-slate-200 rounded-xl p-3 text-xs h-36 outline-none resize-y bg-white font-medium" placeholder="또는 여기에 기획안 텍스트를 직접 입력하세요."></textarea>
+                </div>
+                <textarea id="contentStyle" class="w-full border border-slate-200 rounded-xl p-3 text-[11px] h-20 outline-none resize-y bg-white" placeholder="예: 어두운 판타지 느낌, 입체적인 박스 디자인"></textarea>
+                <button onclick="generateContent()" class="w-full bg-emerald-600 text-white font-black py-3 rounded-xl text-sm shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2">
+                    <span id="generateBtnLabel">GENERATE</span>
+                    <div id="contentSpinner" class="spinner-container hidden"></div>
+                </button>
+                <div class="flex items-center gap-2 mt-1">
+                    <input type="checkbox" id="stylePreserveCheck" class="w-3.5 h-3.5 accent-emerald-600 cursor-pointer">
+                    <label for="stylePreserveCheck" class="text-[11px] font-bold text-slate-500 cursor-pointer select-none">스타일 유지 + 컨텐츠만 변경</label>
+                    <div class="relative group ml-auto">
+                        <span class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-[10px] font-black flex items-center justify-center cursor-default select-none">ℹ</span>
+                        <div class="absolute right-0 bottom-6 w-56 bg-slate-800 text-white text-[10px] rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 leading-relaxed shadow-xl">
+                            ☑ 체크 시: 현재 디자인 스타일을 유지하면서 컨텐츠만 업데이트<br>☐ 해제 시: 전체 새로 생성
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        <!-- Content Assets (이미지 라이브러리) -->
+        <div class="border border-amber-100 p-4 rounded-2xl bg-amber-50/40 mt-2">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-[12px] font-black text-amber-600 uppercase italic">CONTENT ASSETS</h2>
+                <div class="flex items-center gap-2">
+                    <button onclick="runImageMatching()" class="bg-amber-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm hover:bg-amber-600 transition-all flex items-center gap-1">
+                        <span>🔗 텍스트 매칭</span>
+                    </button>
+                    <button onclick="clearLibrary()" class="bg-slate-100 text-slate-400 px-3 py-1.5 rounded-lg text-[10px] font-bold hover:bg-slate-200 hover:text-slate-500 transition-all flex items-center gap-1">
+                        <span>🗑 전체 비우기</span>
+                    </button>
+                </div>
+            </div>
+            <p class="text-[9px] text-slate-400 mb-3">컨텐츠 생성 시 파일명이 일치하면 자동 삽입됩니다<br>예: (img_01) 또는 [img_01]</p>
+            <div id="contentAssetZone" class="drop-zone p-4 text-center text-xs text-slate-400 cursor-pointer flex flex-col items-center justify-center bg-white border-2 border-dashed border-amber-200 hover:bg-amber-50 transition-colors rounded-xl"
+                onclick="getById('contentAssetInput').click()"
+                ondragover="onDragOver(event)"
+                ondragleave="onDragLeave(event)"
+                ondrop="onDropContentAsset(event)">
+                <span class="text-2xl mb-1 pointer-events-none">📥</span>
+                <span class="pointer-events-none font-bold text-amber-500 text-xs">이미지 드래그 또는 클릭</span>
+            </div>
+            <div id="assetLibraryGrid" class="grid grid-cols-3 gap-2 mt-3 empty:hidden"></div>
+        </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col bg-slate-100 overflow-hidden relative">
+        <header class="h-[64px] bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-40" data-promo-studio-hideable>
+            <h1 class="font-black text-slate-800 text-base uppercase tracking-tight italic" data-promo-studio-hide>PROMO <span class="text-indigo-600">AUTO-TOOL</span></h1>
+
+            <div class="flex items-center gap-2">
+                <button onclick="if(confirm('현재 작업 중인 내용이 모두 초기화됩니다. 계속하시겠습니까?')) window.location.reload();" class="text-[11px] font-bold border border-slate-200 px-4 py-2 rounded-lg bg-white hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors shadow-sm">
+                    RESET
+                </button>
+                <div class="relative group">
+                    <button class="text-[11px] font-bold border border-slate-200 px-4 py-2 rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-1.5 cursor-default">
+                        📂 HTML 불러오기 <span class="w-4 h-4 rounded-full bg-amber-100 border border-amber-300 text-amber-600 text-[9px] font-black inline-flex items-center justify-center leading-none">!</span>
+                    </button>
+                    <div class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 bg-slate-800 text-white text-[11px] rounded-xl px-4 py-3 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[9999] leading-relaxed shadow-2xl">
+                        <div class="font-black text-amber-300 mb-1.5">HTML 불러오기 방법</div>
+                        <div class="space-y-1">
+                            <p><span class="text-amber-300 font-bold">1.</span> 컨텐츠 영역에 HTML 파일을 드래그해주세요.</p>
+                            <p><span class="text-amber-300 font-bold">2.</span> 이미지 폴더의 다중 이미지를 드래그하여 불러온 코드 위로 드래그해주세요.</p>
+                        </div>
+                        <div class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-800 rotate-45"></div>
+                    </div>
+                </div>
+                <button onclick="exportToJPG()" class="text-[11px] font-bold border border-slate-200 px-4 py-2 rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm">
+                    📷 JPG 저장
+                </button>
+                <button onclick="openSlicerModal()" class="text-[11px] font-bold bg-indigo-600 text-white px-5 py-2 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors flex items-center gap-1">
+                    <span>✂️ 슬라이드 HTML 저장</span>
+                </button>
+                <button onclick="openExportHtmlModal()" class="text-[11px] font-bold border border-slate-200 px-4 py-2 rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm">
+                    💾 HTML 코드 저장
+                </button>
+                <button onclick="openPreviewPopup()" class="text-[11px] font-bold border border-violet-300 px-4 py-2 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 transition-colors shadow-sm">
+                    👁 미리보기
+                </button>
+            </div>
+        </header>
+
+        <div class="flex gap-2 p-2 bg-white border-b border-slate-200 items-center flex-wrap relative">
+            <button class="px-3 py-1.5 border rounded-md text-xs font-bold hover:bg-slate-50" onclick="undoAction()">↩️</button>
+            <button class="px-3 py-1.5 border rounded-md text-xs font-bold hover:bg-slate-50" onclick="redoAction()">↪️</button>
+            <div class="w-px bg-slate-200 h-6 mx-1"></div>
+            <!-- 컬러 피커 그룹 -->
+            <div class="flex items-center gap-1 border border-slate-200 rounded-lg px-2 py-1">
+                <span class="text-[9px] font-black text-slate-400 uppercase">BG</span>
+                <input type="color" id="bgPicker" oninput="changeBg(this.value)" class="w-5 h-5 border-none cursor-pointer p-0 bg-transparent rounded" title="배경색 동기화">
+                <div class="w-px bg-slate-200 h-4 mx-0.5"></div>
+                <span class="text-[9px] font-black text-slate-400 uppercase">AC</span>
+                <!-- 사선 오버레이: accent 미설정 시 표시 -->
+                <div class="relative w-5 h-5">
+                    <input type="color" id="accentPicker" oninput="changeAccent(this.value)" class="w-5 h-5 border-none cursor-pointer p-0 bg-transparent rounded" title="포인트 컬러 일괄 변경 (AI 생성 후 자동 감지)" value="#888888">
+                    <svg id="accentSlash" class="absolute inset-0 w-5 h-5 pointer-events-none" viewBox="0 0 20 20"><line x1="2" y1="18" x2="18" y2="2" stroke="#ef4444" stroke-width="2"/></svg>
+                </div>
+                <div class="w-px bg-slate-200 h-4 mx-0.5"></div>
+                <span class="text-[9px] font-black text-slate-400">TXT</span>
+                <input type="color" id="textColorPicker" oninput="applyTextColor(this.value)" class="w-5 h-5 border-none cursor-pointer p-0 bg-transparent rounded" title="선택한 텍스트 색상 변경" value="#ffffff">
+            </div>
+            <div class="w-px bg-slate-200 h-6 mx-1"></div>
+            <!-- 이미지 드롭다운 -->
+            <div class="relative">
+                <button class="px-3 py-1.5 border rounded-md text-xs font-bold bg-white hover:bg-slate-50" onclick="toggleMediaMenu('imgMenu', event)">🖼️ 이미지 ▾</button>
+                <div id="imgMenu" class="hidden absolute z-[9999] bg-white border border-slate-200 rounded-xl shadow-xl mt-1 p-2 flex flex-col gap-1 min-w-[160px]" style="top:100%">
+                    <button class="text-left px-3 py-2 text-xs font-bold hover:bg-indigo-50 rounded-lg text-slate-700" onclick="getById('editorImgInput').click();closeMediaMenu('imgMenu')">📁 파일에서 선택</button>
+                    <button class="text-left px-3 py-2 text-xs font-bold hover:bg-indigo-50 rounded-lg text-slate-700" onclick="insertMediaByUrl('image');closeMediaMenu('imgMenu')">🔗 URL로 등록</button>
+                </div>
+            </div>
+            <!-- 영상 드롭다운 -->
+            <div class="relative">
+                <button class="px-3 py-1.5 border rounded-md text-xs font-bold bg-white hover:bg-violet-50 text-violet-600" onclick="toggleMediaMenu('videoMenu', event)">🎬 영상 ▾</button>
+                <div id="videoMenu" class="hidden absolute z-[9999] bg-white border border-slate-200 rounded-xl shadow-xl mt-1 p-2 flex flex-col gap-1 min-w-[160px]" style="top:100%">
+                    <button class="text-left px-3 py-2 text-xs font-bold hover:bg-violet-50 rounded-lg text-slate-700" onclick="getById('videoFileInput').click();closeMediaMenu('videoMenu')">📁 파일에서 선택</button>
+                    <button class="text-left px-3 py-2 text-xs font-bold hover:bg-violet-50 rounded-lg text-slate-700" onclick="insertMediaByUrl('video');closeMediaMenu('videoMenu')">🔗 URL로 등록</button>
+                </div>
+            </div>
+            <button class="px-3 py-1.5 border rounded-md text-xs font-bold bg-white hover:bg-indigo-50 text-indigo-600" onclick="insertLink()">🔗 링크</button>
+            <div class="w-px bg-slate-200 h-6 mx-1"></div>
+            <div class="flex items-center border border-slate-200 rounded-md overflow-hidden">
+                <button class="px-2.5 py-1.5 text-xs font-bold bg-white hover:bg-slate-50 border-r border-slate-200" onclick="alignContent('left')" title="왼쪽 정렬">⬅</button>
+                <button class="px-2.5 py-1.5 text-xs font-bold bg-white hover:bg-slate-50 border-r border-slate-200" onclick="alignContent('center')" title="가운데 정렬">↔</button>
+                <button class="px-2.5 py-1.5 text-xs font-bold bg-white hover:bg-slate-50" onclick="alignContent('right')" title="오른쪽 정렬">➡</button>
+            </div>
+
+            <div id="tableTools" style="display: none;"></div>
+
+            <div id="imgTools" style="display: none;" class="flex items-center border rounded-md bg-amber-50 p-0.5 ml-2">
+                <button class="px-2.5 py-1.5 hover:bg-white text-[10px] font-black text-amber-700" onclick="setImgStyle('inline')">A 글자 취급</button>
+                <div class="w-px bg-slate-200 h-4 mx-1"></div>
+                <button class="px-2.5 py-1.5 hover:bg-white text-[10px] font-black text-amber-700" onclick="setImgStyle('block')">🔲 100% 영역</button>
+                <div class="w-px bg-slate-200 h-4 mx-1"></div>
+                <button class="px-2.5 py-1.5 hover:bg-white text-[10px] font-black text-amber-700" onclick="setImgStyle('resize')">📐 리사이징</button>
+                <div class="w-px bg-slate-200 h-4 mx-1"></div>
+                <button class="px-2.5 py-1.5 hover:bg-white text-[10px] font-black text-blue-600" onclick="imgCopyAction()">📋 복사</button>
+                <button class="px-2.5 py-1.5 hover:bg-white text-[10px] font-black text-orange-600" onclick="imgCutAction()">✂️ 잘라내기</button>
+                <button id="imgBtnPaste" class="px-2.5 py-1.5 hover:bg-white text-[10px] font-black text-green-600" onclick="imgPasteAction()" style="opacity:0.35;pointer-events:none;">⬇ 붙여넣기</button>
+            </div>
+
+            <div id="divTools" style="display: none;" class="flex items-center border rounded-md bg-emerald-50 p-1 ml-2 gap-1">
+                <span class="text-[10px] font-black text-emerald-700 ml-1">라운드:</span>
+                <input type="number" id="divRadiusInput" class="style-input w-10 h-5 text-[10px] text-center border border-emerald-200 rounded outline-none text-emerald-900 font-bold" value="0" onchange="applyDivStyle('radius', this.value)">
+            </div>
+
+            <!-- 영상 삽입 미리보기 (파일 선택 후 표시) -->
+            <div id="videoPreview" class="ml-2 empty:hidden"></div>
+
+        </div>
+
+        <div id="canvasScroll" class="flex-1 overflow-y-auto p-8" style="display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:1.5rem;">
+            <!-- 메인 컨텐츠 -->
+            <div id="documentSheet" class="bg-white shadow-2xl flex flex-col overflow-visible transition-all relative flex-shrink-0" style="width: 840px; min-width: 320px; height: auto; min-height: 1000px; padding: 0; margin: 0; border: none;">
+                <div id="heroDiv" class="w-full relative shrink-0 bg-slate-900 group" style="min-height: 400px; line-height: 0; padding: 0; margin: 0; border: none !important;">
+                    <div id="heroPlaceholder" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: #64748b; font-weight: 900; font-size: 1.25rem; opacity: 0.3; text-transform: uppercase; pointer-events: none;">Hero Engine Area</div>
+                    <img id="mainHeroImg" class="w-full h-auto block hidden pointer-events-none" crossorigin="anonymous">
+                    <button id="deleteHeroBtn" onclick="deleteHeroImage()" class="absolute top-6 right-6 bg-red-500 hover:bg-red-600 text-white px-4 py-2 flex items-center gap-2 rounded-xl shadow-2xl hidden z-[100] transition-opacity opacity-0 group-hover:opacity-100 cursor-pointer pointer-events-auto text-xs font-black tracking-wide" title="히어로 이미지 삭제">🗑️ 히어로 삭제</button>
+                    <div id="heroLoader" class="absolute inset-0 bg-white/95 hidden flex-col items-center justify-center z-20">
+                        <div class="loader-anim w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
+                        <p class="text-[10px] font-black text-indigo-600 mt-3 animate-pulse uppercase text-center">Rendering Fidelity Banner...</p>
+                    </div>
+                </div>
+
+                <div id="addLineBtn" onclick="addLineBelow()" style="display:none;position:absolute;left:50%;transform:translateX(-50%);z-index:100;cursor:pointer;font-size:12px;font-weight:900;padding:6px 20px;border-radius:20px;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.3);letter-spacing:0.02em;transition:opacity 0.15s;">+ 아래 줄 추가</div>
+                <div id="contentArea" contenteditable="true" class="w-full flex-1 flex flex-col overflow-visible relative" style="outline: none; margin: 0; padding: 0; border: none; background-color: #ffffff; height: auto; min-height: 600px;">
+                    <div id="initialNotice" class="text-center text-slate-300 py-32 border-2 border-dashed border-slate-200 rounded-lg font-black text-lg mx-12 my-12 uppercase italic pointer-events-none">DESIGN ENGINE IDLE</div>
+                </div>
+            </div>
+
+            <!-- 팝업 패널 편집 영역 — 오른쪽 sticky -->
+            <div id="childPanelsWrapper" style="display:none;flex-direction:column;gap:0;width:840px;flex-shrink:0;position:sticky;top:2rem;align-self:flex-start;max-height:calc(100vh - 4rem);overflow-y:auto;background:transparent;">
+                <div id="childPanelsContainer" style="display:flex;flex-direction:column;gap:1.25rem;width:100%;padding:0.25rem 0;"></div>
+            </div>
+        </div>
+    </main>
+
+
+    <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-8 py-4 rounded-2xl text-xs font-bold hidden z-[900000] shadow-2xl transition-all"></div>
+    
+    <input type="file" id="heroRefInput" class="hidden" accept="image/*">
+    <input type="file" id="heroAssetInput" multiple class="hidden" accept="image/*">
+    <input type="file" id="heroLogoInput" class="hidden" accept="image/*">
+    <input type="file" id="editorImgInput" class="hidden" accept="image/*">
+    <input type="file" id="contentAssetInput" multiple class="hidden" accept="image/*">
+    <input type="file" id="htmlLoadInput" class="hidden" accept=".html">
+    <input type="file" id="videoFileInput" class="hidden" accept="video/*">
+
+        <script src="./app.js"></script>
+        <script>
+        (function(){
+          // PROMO STUDIO iframe 환경 감지
+          const inStudio = window.self !== window.top;
+          if (!inStudio) return;
+
+          // in-studio 클래스 → 헤더 우측 정렬용 CSS hook
+          document.documentElement.classList.add('in-studio');
+          const style = document.createElement('style');
+          style.textContent = 'html.in-studio header[data-promo-studio-hideable]{justify-content:flex-end !important;}';
+          document.head.appendChild(style);
+
+          // 헤더 로고, Gemini API KEY 설정 UI 숨김
+          function hideStudioElements(){
+            document.querySelectorAll('[data-promo-studio-hide]').forEach(el => { el.style.display = 'none'; });
+            // 헤더가 로고만 지우면 텅 비어 보이지 않게 좌측 정렬 유지
+          }
+          hideStudioElements();
+          // 지연 DOM 대비
+          setTimeout(hideStudioElements, 300);
+          setTimeout(hideStudioElements, 1500);
+
+          // localStorage 에 저장된 키로 초기 주입
+          function applyKey(key){
+            const el = document.getElementById('apiKeyInput');
+            if (el && typeof key === 'string') {
+              el.value = key;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+
+          try {
+            const stored = localStorage.getItem('promo_studio_gemini_api_key');
+            if (stored) applyKey(stored);
+          } catch(e){}
+
+          // 부모에서 오는 postMessage 수신
+          window.addEventListener('message', ev => {
+            const d = ev.data || {};
+            if (d.type === 'PROMO_STUDIO_API_KEY') applyKey(d.key);
+          });
+        })();
+        </script>
+</body>
+</html>

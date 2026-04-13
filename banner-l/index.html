@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BATCH TRANSLATOR</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script>window.react = window.React;</script>
+  <script crossorigin src="https://unpkg.com/lucide-react@0.344.0/dist/umd/lucide-react.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useRef, useEffect } = React;
+const {
+  Download, Layout, CheckCircle2, AlertCircle, Loader2, X, Zap, Box, Type,
+  MessageSquareText, Check, PlusSquare, Maximize, RotateCcw,
+  Layers, Trash2, PlusCircle, Square, CheckSquare,
+  Scan, Files, UploadCloud, Info, Archive, ImageIcon,
+  LayoutTemplate, Languages, ImagePlus, KeyRound, Plus, FileSpreadsheet,
+  Globe, Save, ChevronRight, Link: LinkIcon, RefreshCw, ClipboardList,
+  Hash, AlignLeft, Crown
+} = LucideReact;
+
+const apiKeyDefault = "";
+const API_MODEL = "gemini-3-pro-image-preview";
+
+// master_guidelines.md 내장 폴백 + fetch 오버라이드
+const EMBEDDED_GUIDELINES = `[ROLE & DIRECTIVE]
+You are an expert graphic designer AI.
+DO NOT USE ANY EXTERNAL TOOLS OR FUNCTIONS. DO NOT OUTPUT JSON OR TEXT. OUTPUT ONLY THE FINAL EDITED IMAGE.
+
+[INPUTS]
+{{REF_INPUTS}}
+
+[CRITICAL DIRECTIVE: TEXT & LOGO REMOVAL]
+Before doing anything else, you MUST perform seamless inpainting to COMPLETELY REMOVE AND ERASE the following from Image 1 (REF_1):
+1. Original Text to Erase: "{{ORIGINAL_TEXT}}"
+2. ALL existing logos, brand icons, and watermarks.
+{{ERASE_LOGO_LINE}}
+DO NOT overlay new text on top of old text. The background behind the erased text must be cleanly restored first!
+
+[MANDATORY RULE: STRICT LAYOUT + STRICT STYLE]
+1. STRUCTURAL LAYOUT = REF_1: You MUST strictly copy the exact positions of characters, background elements, empty spaces, and structural proportions from Image 1 (REF_1). DO NOT alter the layout, stretch, or distort the image.
+{{STYLE_RULE}}
+
+[DRAW NEW TEXT]
+Now, draw the following new text in the cleanly erased areas using the exact style instructed above:
+- Title: "{{MAIN_TITLE}}"
+- Subtitle: "{{SUBTITLE}}"
+{{EXTRA_TEXT_LINE}}
+{{BUTTON_LINE}}
+
+[CONSTRAINTS]
+- DO NOT hallucinate or add any new characters, logos, or objects.
+- The output MUST perfectly fit the aspect ratio of REF_1.
+
+[EXTRA INSTRUCTIONS]
+{{EXTRA_INSTRUCTIONS}}
+{{CRUCIAL_LINE}}
+{{MANUAL_REPROMPT}}
+
+{{TARGET_TEXT_BLOCK}}`;
+
+let _guidelinesCache = null;
+const loadGuidelines = async () => {
+  if (_guidelinesCache) return _guidelinesCache;
+  try {
+    const resp = await fetch('master_guidelines.md');
+    if (resp.ok) { _guidelinesCache = await resp.text(); return _guidelinesCache; }
+  } catch(e) {}
+  _guidelinesCache = EMBEDDED_GUIDELINES;
+  return _guidelinesCache;
+};
+
+const FIXED_LOGO_SCALES = {
+  "640x100": 60, "728x90": 45, "970x90": 50, "300x50": 65, "300x60": 70, "320x50": 75, "320x100": 85, "900x150": 70, "970x250": 55, "500x500": 80, "1080x1080": 70, "300x250": 85, "480x320": 75, "800x400": 60, "1024x768": 60, "1200x628": 55, "1200x800": 55, "1280x720": 50, "1920x1080": 60, "320x480": 110, "300x600": 110, "375x667": 110, "640x960": 90, "768x1024": 80, "800x1200": 80, "720x1280": 85, "1203x1500": 85, "1080x1920": 85
+};
+
+const FIXED_LOGO_PADDINGS = {
+  "1024x1024": 32, "640x100": 12, "728x90": 12, "970x90": 12, "300x50": 8, "300x60": 8, "320x50": 8, "320x100": 8, "900x150": 12, "970x250": 12, "500x500": 24, "1080x1080": 32, "300x250": 12, "480x320": 12, "800x400": 24, "1024x768": 24, "1200x628": 24, "1200x800": 24, "1280x720": 24, "1920x1080": 24, "320x480": 12, "300x600": 12, "375x667": 24, "640x960": 24, "768x1024": 24, "800x1200": 32, "720x1280": 32, "1203x1500": 32, "1080x1920": 32
+};
+
+const processImageMetadata = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const src = e.target.result;
+      const img = new Image();
+      img.src = src;
+      img.onload = () => resolve({ id: `src-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, src, w: img.width, h: img.height, name: file.name });
+      img.onerror = () => resolve(null);
+    };
+  });
+};
+
+const urlToBase64 = (url) => {
+  return new Promise((resolve) => {
+    if (!url || !url.startsWith('http') || url.includes('...')) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+};
+
+const stripBase64Params = (base64) => base64?.split('base64,')[1] || '';
+
+const finalizeBannerPixel = (base64, targetW, targetH, logoBase64, scaleModifier = 100, position = 'tl') => {
+  return new Promise((resolve) => {
+    if (!base64) return resolve(null);
+    const img = new Image();
+    img.src = base64;
+    img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW; canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetW, targetH);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+        if (logoBase64) {
+          try {
+            const logoImg = await new Promise((res, rej) => {
+                const lImg = new Image(); lImg.src = logoBase64;
+                lImg.onload = () => res(lImg); lImg.onerror = rej;
+            });
+            const key = `${targetW}x${targetH}`;
+            const padding = FIXED_LOGO_PADDINGS[key] || 12;
+            let baseLogoH = targetH * 0.22; let baseLogoW = targetW * 0.28;
+            if (targetH <= 100) baseLogoH = targetH * 0.48;
+            let maxLogoH = baseLogoH * (scaleModifier / 100);
+            let maxLogoW = baseLogoW * (scaleModifier / 100);
+            maxLogoH = Math.min(maxLogoH, targetH - (padding * 2));
+            maxLogoW = Math.min(maxLogoW, targetW - (padding * 2));
+            const fitScale = Math.min(maxLogoW / logoImg.width, maxLogoH / logoImg.height);
+            const finalW = logoImg.width * fitScale; const finalH = logoImg.height * fitScale;
+            let lx, ly;
+            switch(position) {
+              case 'tr': lx = targetW - finalW - padding; ly = padding; break;
+              case 'bl': lx = padding; ly = targetH - finalH - padding; break;
+              case 'br': lx = targetW - finalW - padding; ly = targetH - finalH - padding; break;
+              case 'tl': default: lx = padding; ly = padding; break;
+            }
+            ctx.drawImage(logoImg, lx, ly, finalW, finalH);
+          } catch(e) { console.error("Logo drawing error", e); }
+        }
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+    img.onerror = () => resolve(null);
+  });
+};
+
+const CompactSingleUploader = ({ label, image, onUpload, onDelete, icon: Icon = PlusSquare, height = "h-12" }) => {
+    const fileInputRef = useRef(null);
+    const [isDragging, setIsDragging] = useState(false);
+    return (
+      <div className="flex flex-col gap-1 w-full text-left">
+        {label && <div className="flex justify-between items-center px-1"><span className="text-[9px] text-slate-400 font-normal uppercase tracking-widest flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> <span>{label}</span></span></div>}
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { setIsDragging(false); } }}
+          onDrop={async (e) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files?.[0]; if(f && f.type.startsWith('image/')) { const meta = await processImageMetadata(f); if(meta) onUpload(meta.src); } }}
+          className={`relative group ${height} w-full rounded border border-dashed transition-all flex items-center justify-center overflow-hidden ${isDragging ? 'bg-[#3264ff]/20 border-[#3264ff]' : 'bg-black/40 border-[#2d2f36]'} hover:border-[#3264ff]/50 cursor-pointer ${image ? 'border-solid' : ''}`}
+        >
+          {image ? (
+            <>
+              <img src={image} alt="upload" className="w-full h-full object-contain p-1" />
+              <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all"><button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="text-red-400 p-2 hover:scale-110 transition-transform"><Trash2 className="w-4 h-4" /></button></div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-1 opacity-20 text-slate-400 text-center">
+              <UploadCloud className="w-4 h-4" />
+              <span className="text-[7px] font-normal uppercase tracking-widest">UPLOAD</span>
+            </div>
+          )}
+          <input type="file" ref={fileInputRef} onChange={async (e) => { const file = e.target.files?.[0]; if (file) { const m = await processImageMetadata(file); if(m) onUpload(m.src); } }} accept="image/*" className="hidden" />
+        </div>
+      </div>
+    );
+};
+
+function App() {
+  const [sourceBanners, setSourceBanners] = useState([]);
+  const [masterBannerId, setMasterBannerId] = useState(null);
+  const [styleReference, setStyleReference] = useState(null);
+  const [textureAssets, setTextureAssets] = useState([]);
+  const [userApiKey, setUserApiKey] = useState(() => {
+    try { return localStorage.getItem('promo_studio_gemini_api_key') || ''; } catch(e) { return ''; }
+  });
+  const [globalOriginalText, setGlobalOriginalText] = useState('');
+  const [globalLogoToErase, setGlobalLogoToErase] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState(null);
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [isFetchingSheet, setIsFetchingSheet] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [isDraggingBoard, setIsDraggingBoard] = useState(false);
+  const [isDraggingTexture, setIsDraggingTexture] = useState(false);
+  const [isDraggingCsv, setIsDraggingCsv] = useState(false);
+  const [loadRange, setLoadRange] = useState({ start: 1, end: 100 });
+  const [csvAllRows, setCsvAllRows] = useState([]); // 전체 CSV 파싱 결과 (no 포함)
+  const [csvSetNos, setCsvSetNos] = useState([]); // 고유 no 목록
+  const [activeSetNo, setActiveSetNo] = useState(null); // 현재 선택된 no
+  const [languages, setLanguages] = useState([
+    { id: 'lang-default', suffix: '', main_title: '', subtitle: '', sub_sub_text: '', button_text: '', filename_suffix: '', logo: null, position: 'tl', scale: 100, extra_instructions: '', master_style_image: null }
+  ]);
+  const [results, setResults] = useState({});
+  const boardInputRef = useRef(null);
+
+  // TRANSLATE 모드 상태
+  // URL hash 로 초기 모드 지정: #resize | #translate
+  // #lock-resize | #lock-translate 은 해당 모드로 고정 + 탭 버튼 숨김
+  const _initialHash = (typeof location !== 'undefined' ? (location.hash || '').replace('#','') : '');
+  const _initialMode = _initialHash.replace('lock-','') === 'translate' ? 'translate' : 'resize';
+  const _lockedMode = _initialHash.startsWith('lock-');
+  const [activeTab, setActiveTab] = useState(_initialMode);
+  const [tBanners, setTBanners] = useState([]);
+  const [tCsvData, setTCsvData] = useState([]);
+  const [tResults, setTResults] = useState({});
+  const [tExpandedId, setTExpandedId] = useState(null);
+  const [isDraggingTBoard, setIsDraggingTBoard] = useState(false);
+  const [isDraggingTCsv, setIsDraggingTCsv] = useState(false);
+  const tBoardInputRef = useRef(null);
+
+  useEffect(() => {
+    const preventDefault = (e) => { e.preventDefault(); e.stopPropagation(); };
+    window.addEventListener('dragover', preventDefault);
+    window.addEventListener('drop', preventDefault);
+    return () => { window.removeEventListener('dragover', preventDefault); window.removeEventListener('drop', preventDefault); };
+  }, []);
+
+  // PROMO STUDIO API KEY 동기화 (iframe 부모에서 postMessage 로 전달)
+  useEffect(() => {
+    const onMsg = (ev) => {
+      const d = ev.data || {};
+      if (d.type === 'PROMO_STUDIO_API_KEY' && typeof d.key === 'string') {
+        setUserApiKey(d.key);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  // config.json 자동 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch('/config.json?' + Date.now());
+        if (!resp.ok) return;
+        const cfg = await resp.json();
+
+        // API 키
+        if (cfg.apiKey) setUserApiKey(cfg.apiKey);
+
+        // 모드
+        if (cfg.mode) setActiveTab(cfg.mode);
+
+        if (cfg.mode === 'translate') {
+          // TRANSLATE 모드: 배너 이미지 로드
+          if (cfg.banners && cfg.banners.length > 0) {
+            const metas = await Promise.all(cfg.banners.map(async (b) => {
+              try {
+                const r = await fetch(b.url);
+                const blob = await r.blob();
+                const src = await new Promise(res => { const reader = new FileReader(); reader.onload = e => res(e.target.result); reader.readAsDataURL(blob); });
+                const img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = src; });
+                return { id: `src-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, src, w: img.width, h: img.height, name: b.filename };
+              } catch(e) { return null; }
+            }));
+            setTBanners(metas.filter(m => m));
+          }
+
+          // CSV 데이터 로드
+          if (cfg.csvData && cfg.csvData.length > 0) {
+            const rows = await Promise.all(cfg.csvData.map(async (row) => {
+              let logo_base64 = null;
+              if (row.logo_url && row.logo_url.startsWith('http') && !row.logo_url.includes('...')) {
+                try { logo_base64 = await urlToBase64(row.logo_url); } catch(e) {}
+              }
+              return { filename: row.filename || '', suffix: row.suffix || '', original_text: row.original_text || '', main_title: row.title || '', subtitle: row.sub_text || '', sub_sub_text: row.sub_sub_text || '', button_text: row.btn_text || '', filename_suffix: row.file_suffix || '', logo: logo_base64, extra_instructions: row.extra || '', position: row.position || 'tl', scale: row.scale || 100 };
+            }));
+            setTCsvData(rows);
+            setLastSyncTime(new Date().toLocaleTimeString());
+          }
+        } else {
+          // RESIZE 모드: 기존 로직
+          if (cfg.originalText) setGlobalOriginalText(cfg.originalText);
+          if (cfg.banners && cfg.banners.length > 0) {
+            const metas = await Promise.all(cfg.banners.map(async (b) => {
+              try {
+                const r = await fetch(b.url);
+                const blob = await r.blob();
+                const src = await new Promise(res => { const reader = new FileReader(); reader.onload = e => res(e.target.result); reader.readAsDataURL(blob); });
+                const img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = src; });
+                return { id: `src-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, src, w: img.width, h: img.height, name: b.filename };
+              } catch(e) { return null; }
+            }));
+            const validMetas = metas.filter(m => m);
+            setSourceBanners(validMetas);
+            if (validMetas.length > 0) {
+              const master = validMetas.find(m => m.w === 1024 && m.h === 1024) || validMetas.sort((a,b) => (b.w*b.h)-(a.w*a.h))[0];
+              setMasterBannerId(master.id);
+              setStyleReference(master.src);
+            }
+          }
+          if (cfg.languages) {
+            const langs = await Promise.all(cfg.languages.map(async (l, i) => {
+              let logo_base64 = null;
+              if (l.logo_url && l.logo_url.startsWith('http') && !l.logo_url.includes('...')) {
+                try { logo_base64 = await urlToBase64(l.logo_url); } catch(e) {}
+              }
+              return { id: `lang-${l.suffix || Date.now() + i}`, suffix: l.suffix || '', original_text: l.original_text || '', main_title: l.title || '', subtitle: l.sub_text || '', sub_sub_text: l.sub_sub_text || '', button_text: l.btn_text || '', filename_suffix: l.file_suffix || '', logo: logo_base64, position: l.position || 'tl', scale: l.scale || 100, extra_instructions: l.extra || '', master_style_image: null };
+            }));
+            setLanguages(langs);
+            const firstOrig = langs.find(l => l.original_text)?.original_text;
+            if (firstOrig) setGlobalOriginalText(firstOrig);
+            setLastSyncTime(new Date().toLocaleTimeString());
+          }
+        }
+        console.log('[CONFIG] 자동 로드 완료:', cfg.mode || 'resize');
+      } catch(e) { /* config.json 없으면 무시 */ }
+    })();
+  }, []);
+
+  const updateLangField = (id, field, val) => { setLanguages(prev => prev.map(l => l.id === id ? { ...l, [field]: val } : l)); };
+  const addLanguage = () => { const newId = `lang-${Date.now()}`; setLanguages(prev => [...prev, { id: newId, suffix: '', main_title: '', subtitle: '', sub_sub_text: '', button_text: '', filename_suffix: '', logo: null, position: 'tl', scale: 100, extra_instructions: '', master_style_image: null }]); };
+  const removeLanguage = (id) => { if (languages.length > 1) setLanguages(prev => prev.filter(l => l.id !== id)); };
+
+  const handleSourceBannersUpload = async (files) => {
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
+    const metas = await Promise.all(validFiles.map(f => processImageMetadata(f)));
+    setSourceBanners(prev => {
+        const newBanners = [...prev, ...metas];
+        if (!masterBannerId && newBanners.length > 0) {
+            const master = newBanners.find(m => m.w === 1024 && m.h === 1024) || [...newBanners].sort((a,b) => (b.w*b.h) - (a.w*a.h))[0];
+            setMasterBannerId(master.id);
+            if (!styleReference) setStyleReference(master.src);
+        }
+        return newBanners;
+    });
+  };
+
+  const parseCsvText = async (text) => {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length <= 1) return;
+    const splitLine = (line) => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
+    const header = splitLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'));
+    const hasNoCol = header.includes('no');
+    const noIdx = header.indexOf('no');
+    // no 컬럼 제외한 데이터 컬럼 인덱스 계산
+    const dataStart = hasNoCol ? 1 : 0; // no가 있으면 그 다음부터 데이터
+    const allDataLines = lines.slice(1);
+    const allRows = await Promise.all(allDataLines.map(async (line, idx) => {
+      const c = splitLine(line);
+      const no = hasNoCol ? (c[noIdx] || '').trim() : null;
+      const d = hasNoCol ? c.filter((_, i) => i !== noIdx) : c; // no 컬럼 제거
+      const suffix = d[0] || ''; const original_text = d[1] || ''; const title = d[2] || '';
+      const subtitle = d[3] || ''; const sub_sub_text = d[4] || ''; const btn_text = d[5] || '';
+      const file_suffix = d[6] || ''; const logo_url = d[7] || ''; const extra = d[8] || '';
+      const logo_base64 = (logo_url && logo_url.startsWith('http') && !logo_url.includes('...')) ? await urlToBase64(logo_url) : null;
+      return { no, id: `lang-${suffix || Date.now() + idx}`, suffix, original_text, main_title: title, subtitle, sub_sub_text, button_text: btn_text, filename_suffix: file_suffix, logo: logo_base64 || languages[0]?.logo || null, position: 'tl', scale: 100, extra_instructions: extra, master_style_image: languages[0]?.master_style_image || null };
+    }));
+
+    if (hasNoCol) {
+      // no 컬럼 있으면: 전체 저장 + 번호 목록 추출
+      setCsvAllRows(allRows);
+      const nos = [...new Set(allRows.map(r => r.no).filter(Boolean))];
+      setCsvSetNos(nos);
+      // 첫 번째 번호 자동 선택
+      if (nos.length > 0) {
+        setActiveSetNo(nos[0]);
+        applySetNo(allRows, nos[0]);
+      }
+      setLastSyncTime(new Date().toLocaleTimeString());
+    } else {
+      // no 컬럼 없으면: 기존 방식 (행 범위)
+      setCsvAllRows([]); setCsvSetNos([]); setActiveSetNo(null);
+      const startIndex = Math.max(0, loadRange.start - 1);
+      const endIndex = Math.min(allRows.length, loadRange.end);
+      const filtered = allRows.slice(startIndex, endIndex);
+      if (filtered.length > 0) {
+        setLanguages(filtered);
+        const firstOrig = filtered.find(l => l.original_text)?.original_text;
+        if (firstOrig) setGlobalOriginalText(firstOrig);
+        setLastSyncTime(new Date().toLocaleTimeString());
+      }
+    }
+  };
+
+  const applySetNo = (rows, no) => {
+    const filtered = rows.filter(r => r.no === no);
+    if (filtered.length > 0) {
+      setLanguages(filtered);
+      setActiveSetNo(no);
+      const firstOrig = filtered.find(l => l.original_text)?.original_text;
+      if (firstOrig) setGlobalOriginalText(firstOrig);
+    }
+  };
+
+  const handleSheetFetch = async () => {
+    if (!sheetUrl.trim()) return;
+    setIsFetchingSheet(true); setError(null);
+    try {
+      let fetchUrl = sheetUrl.trim();
+      if (fetchUrl.includes('docs.google.com/spreadsheets')) {
+        const matches = fetchUrl.match(/\/d\/(.+?)\//);
+        if (matches && matches[1]) { const sheetId = matches[1]; let gid = fetchUrl.match(/gid=(\d+)/)?.[1] || '0'; fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`; }
+      }
+      const response = await fetch(fetchUrl);
+      if (!response.ok) throw new Error("시트 연결 실패. 권한을 확인하세요.");
+      const text = await response.text();
+      await parseCsvText(text);
+    } catch (e) { setError(e.message); } finally { setIsFetchingSheet(false); }
+  };
+
+  // TRANSLATE 모드용 시트 로드 (parseTCsvText 로 연결)
+  const handleSheetFetchT = async () => {
+    if (!sheetUrl.trim()) return;
+    setIsFetchingSheet(true); setError(null);
+    try {
+      let fetchUrl = sheetUrl.trim();
+      if (fetchUrl.includes('docs.google.com/spreadsheets')) {
+        const matches = fetchUrl.match(/\/d\/(.+?)\//);
+        if (matches && matches[1]) { const sheetId = matches[1]; let gid = fetchUrl.match(/gid=(\d+)/)?.[1] || '0'; fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`; }
+      }
+      const response = await fetch(fetchUrl);
+      if (!response.ok) throw new Error("시트 연결 실패. 권한을 확인하세요.");
+      const text = await response.text();
+      await parseTCsvText(text);
+    } catch (e) { setError(e.message); } finally { setIsFetchingSheet(false); }
+  };
+
+  const callGeminiAPI = async (prompt, images) => {
+    const activeKey = userApiKey.trim() || apiKeyDefault;
+    if (!activeKey) throw new Error("상단 GEMINI API KEY에 키를 먼저 입력해주세요.");
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${API_MODEL}:generateContent?key=${activeKey}`;
+    const parts = [{ text: prompt }];
+    images.filter(img => img).forEach(img => parts.push({ inlineData: { mimeType: "image/jpeg", data: stripBase64Params(img) } }));
+    const payload = { contents: [{ parts }], generationConfig: { responseModalities: ["IMAGE"] } };
+    const retryDelays = [2000, 4000, 8000, 15000];
+    for (let i = 0; i <= retryDelays.length; i++) {
+        try {
+            const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (resp.ok) {
+                const data = await resp.json();
+                const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                if (part) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                const finishReason = data.candidates?.[0]?.finishReason;
+                if (finishReason === 'SAFETY') { throw new Error("안전 필터(Safety)에 의해 이미지가 차단되었습니다."); }
+                throw new Error(`이미지 데이터가 반환되지 않았습니다 (사유: ${finishReason || 'Unknown'})`);
+            } else {
+                const err = await resp.json(); const errMsg = err.error?.message || "";
+                const isRetryable = resp.status === 429 || resp.status >= 500 || errMsg.includes('MALFORMED_FUNCTION_CALL');
+                if (isRetryable && i < retryDelays.length) { console.warn(`[API 에러 복구 중] ${resp.status} - ${errMsg}. ${retryDelays[i]}ms 대기 후 재요청합니다...`); await new Promise(r => setTimeout(r, retryDelays[i])); continue; }
+                throw new Error(`API 오류 (${resp.status}): ${errMsg || "알 수 없는 오류"}`);
+            }
+        } catch (e) { if (i === retryDelays.length) throw e; }
+    }
+  };
+
+  const generateSingleResult = async (banner, lang, customPrompt = "") => {
+    if (!banner || !lang) return;
+    const isMaster = banner.id === masterBannerId;
+    const currentStyleRef = isMaster ? styleReference : (lang.master_style_image || styleReference);
+    const hasStyleRef = !!currentStyleRef;
+    setResults(prev => ({ ...prev, [banner.id]: { ...(prev[banner.id] || {}), [lang.id]: { url: null, rawUrl: null, loading: true, error: null } } }));
+    try {
+        const promptImages = [banner.src];
+        let imgIdx = 1;
+        let refInputsStr = `- Image 1 (REF_1): Original Banner (Layout Guide)\n`;
+        let styleRefStr = "";
+        if (hasStyleRef) { promptImages.push(currentStyleRef); imgIdx++; refInputsStr += `- Image ${imgIdx} (REF_2): Style Reference / Typography Master\n`; styleRefStr = `Image ${imgIdx} (REF_2)`; }
+        let eraseLogoStr = "";
+        if (globalLogoToErase) { promptImages.push(globalLogoToErase); imgIdx++; refInputsStr += `- Image ${imgIdx} (REF_ERASE): TARGET LOGO/GRAPHIC TO ERASE\n`; eraseLogoStr = `Image ${imgIdx} (REF_ERASE)`; }
+        promptImages.push(...textureAssets);
+
+        const guidelinesTemplate = await loadGuidelines();
+        const eraseLogoLine = globalLogoToErase ? `3. SPECIFIC GRAPHIC TO ERASE: You MUST find the exact graphic/logo shown in ${eraseLogoStr} within Image 1 and perfectly erase it!` : '';
+        const styleRule = hasStyleRef ? (isMaster
+          ? `2. VISUAL STYLE = ${styleRefStr}: You MUST strictly apply the high-resolution texture, color grade, and visual mood of ${styleRefStr}.`
+          : `2. RESIZE ADAPTATION RULE:
+   - ${styleRefStr} is the MASTER RESULT (different aspect ratio: ${sourceBanners.find(b=>b.id===masterBannerId)?.w||1024}x${sourceBanners.find(b=>b.id===masterBannerId)?.h||1024}).
+   - REF_1 is the TARGET LAYOUT (${banner.w}x${banner.h}).
+   - You MUST use REF_1's EXACT aspect ratio (${banner.w}:${banner.h}), character positions, and spatial composition.
+   - Copy ONLY the typography style (font, text effects, colors, glow, shadow) from ${styleRefStr}.
+   - DO NOT copy ${styleRefStr}'s layout or character positions — those come from REF_1.
+   - The output canvas size MUST match REF_1's dimensions exactly.`) : '';
+        const extraTextLine = lang.sub_sub_text ? `- Extra text: "${lang.sub_sub_text}"` : '';
+        const buttonLine = lang.button_text ? `- Button: Draw a button with text "${lang.button_text}" exactly where it was.` : `- NO BUTTON: Erase existing buttons completely.`;
+        const crucialLine = !isMaster ? `CRUCIAL: Output MUST be ${banner.w}x${banner.h} pixels. Layout/composition from REF_1 ONLY. Typography style from ${styleRefStr} ONLY. Do NOT squash or stretch.` : '';
+        const manualReprompt = customPrompt ? `\n[MANUAL RE-PROMPT]: ${customPrompt}` : '';
+        const targetTextBlock = globalOriginalText ? `[TARGET TEXT TO REPLACE]\n- Original Text in REF_1 to erase: "${globalOriginalText}"\n(CRITICAL INSTRUCTION: Scan REF_1 to find this exact original text. Erase it completely, and put the new translated text in that exact location.)` : '';
+
+        const prompt = guidelinesTemplate
+          .replace('{{REF_INPUTS}}', refInputsStr)
+          .replace('{{ORIGINAL_TEXT}}', globalOriginalText || 'ALL EXISTING TEXT AND LETTERS')
+          .replace('{{ERASE_LOGO_LINE}}', eraseLogoLine)
+          .replace('{{STYLE_RULE}}', styleRule)
+          .replace('{{MAIN_TITLE}}', lang.main_title)
+          .replace('{{SUBTITLE}}', lang.subtitle)
+          .replace('{{EXTRA_TEXT_LINE}}', extraTextLine)
+          .replace('{{BUTTON_LINE}}', buttonLine)
+          .replace('{{EXTRA_INSTRUCTIONS}}', lang.extra_instructions || 'Maintain strict design consistency.')
+          .replace('{{CRUCIAL_LINE}}', crucialLine)
+          .replace('{{MANUAL_REPROMPT}}', manualReprompt)
+          .replace('{{TARGET_TEXT_BLOCK}}', targetTextBlock);
+
+        const rawUrl = await callGeminiAPI(prompt, promptImages);
+        const key = `${banner.w}x${banner.h}`;
+        const initScale = FIXED_LOGO_SCALES[key] || 100;
+        const finalUrl = await finalizeBannerPixel(rawUrl, banner.w, banner.h, lang.logo, initScale, lang.position);
+        setResults(prev => ({ ...prev, [banner.id]: { ...prev[banner.id], [lang.id]: { url: finalUrl, rawUrl: rawUrl, scale: initScale, prompt: customPrompt, loading: false } } }));
+        if (isMaster && rawUrl) { setLanguages(prev => prev.map(l => l.id === lang.id ? { ...l, master_style_image: rawUrl } : l)); }
+    } catch (e) {
+        console.error(`[${lang.id}] 렌더링 실패 상세 에러:`, e);
+        setResults(prev => ({ ...prev, [banner.id]: { ...prev[banner.id], [lang.id]: { error: e.message, loading: false } } }));
+    }
+  };
+
+  const runInBatches = async (tasks, batchSize = 3) => {
+    for (let i = 0; i < tasks.length; i += batchSize) {
+        const chunk = tasks.slice(i, i + batchSize);
+        await Promise.all(chunk.map(async (task, idx) => { if (idx > 0) { await new Promise(r => setTimeout(r, idx * 2500)); } return task(); }));
+        if (i + batchSize < tasks.length) { await new Promise(r => setTimeout(r, 2000)); }
+    }
+  };
+
+  const generateMastersOnly = async () => {
+    if (!masterBannerId) return setError("마스터 레이아웃으로 지정된 배너가 없습니다.");
+    const masterBanner = sourceBanners.find(b => b.id === masterBannerId);
+    if (!masterBanner) return;
+    setIsGenerating(true);
+    const tasks = [];
+    for (const lang of languages) { if (!lang.main_title && !lang.subtitle) continue; tasks.push(() => generateSingleResult(masterBanner, lang)); }
+    await runInBatches(tasks, 3);
+    setIsGenerating(false);
+  };
+
+  const generateRestAll = async () => {
+    if (sourceBanners.length <= 1) return alert("마스터 외에 생성할 다른 규격의 배너가 없습니다.");
+    setIsGenerating(true);
+    const tasks = [];
+    for (const banner of sourceBanners) { if (banner.id === masterBannerId) continue; for (const lang of languages) { if (!lang.main_title && !lang.subtitle) continue; tasks.push(() => generateSingleResult(banner, lang)); } }
+    await runInBatches(tasks, 3);
+    setIsGenerating(false);
+  };
+
+  const handleCountryBatch = async (lang) => {
+    if (sourceBanners.length === 0) return;
+    setIsGenerating(true);
+    const tasks = [];
+    for (const banner of sourceBanners) { tasks.push(() => generateSingleResult(banner, lang)); }
+    await runInBatches(tasks, 3);
+    setIsGenerating(false);
+  };
+
+  const updateLogoResult = async (bannerId, langId, newScale) => {
+    const banner = sourceBanners.find(b => b.id === bannerId);
+    const lang = languages.find(l => l.id === langId);
+    const res = results[bannerId]?.[langId];
+    if (banner && lang && res?.rawUrl) {
+        const updatedUrl = await finalizeBannerPixel(res.rawUrl, banner.w, banner.h, lang.logo, newScale, lang.position);
+        setResults(prev => ({ ...prev, [bannerId]: { ...prev[bannerId], [langId]: { ...res, url: updatedUrl, scale: newScale } } }));
+    }
+  };
+
+  const getOutputFileName = (banner, lang) => { const sizePart = `${banner.w}x${banner.h}`; let suffixPart = lang.filename_suffix || ""; if (suffixPart && !suffixPart.startsWith('_')) { suffixPart = `_${suffixPart}`; } return `${sizePart}${suffixPart}.jpg`; };
+
+  const handleExportZip = async () => {
+    if (!window.JSZip) { const s = document.createElement('script'); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; document.head.appendChild(s); await new Promise(r => s.onload = r); }
+    const zip = new window.JSZip(); let fileCount = 0;
+    sourceBanners.forEach(b => { languages.forEach(l => { const res = results[b.id]?.[l.id]; if (res?.url) { zip.folder(l.suffix || 'unnamed').file(getOutputFileName(b, l), res.url.split('base64,')[1], { base64: true }); fileCount++; } }); });
+    if (fileCount === 0) return alert("저장할 파일이 없습니다.");
+    const content = await zip.generateAsync({ type: "blob" });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(content); link.download = `translated_pack_${Date.now()}.zip`; link.click();
+  };
+
+  // ── TRANSLATE 모드 함수 ──
+  const handleTBannersUpload = async (files) => {
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
+    const metas = await Promise.all(validFiles.map(f => processImageMetadata(f)));
+    setTBanners(prev => [...prev, ...metas.filter(m => m)]);
+  };
+
+  // CSV: 파일명, 언어, 지울원문, 타이틀, 서브타이틀, 추가문구, 버튼, 파일접미사, 로고URL, 추가지시
+  const parseTCsvText = async (text) => {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length <= 1) return;
+    const splitLine = (line) => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
+    // 헤더 정규화: 소문자 + 공백/괄호/특수문자 제거
+    const normalize = (s) => s.toLowerCase().replace(/[()[\]{}]/g, '').replace(/\s+/g, '_').replace(/^_+|_+$/g, '');
+    const header = splitLine(lines[0]).map(normalize);
+    // 컬럼 이름 → 인덱스 매핑 (한/영 별칭 포함)
+    const aliasMap = {
+      filename: ['filename', 'file', 'file_name', 'name', '파일명', '파일', '이름'],
+      suffix: ['suffix', 'lang', 'language', 'lang_code', '언어', '접미사'],
+      original_text: ['original_text', 'original', 'erase_text', 'target_text', 'source_text', '원문', '원문_지울_텍스트', '지울텍스트', '지울_텍스트'],
+      main_title: ['title', 'main_title', 'maintitle', '타이틀', '제목'],
+      subtitle: ['sub_text', 'subtitle', 'sub', '서브', '서브텍스트', '서브_텍스트'],
+      sub_sub_text: ['sub_sub_text', 'sub2', 'extra_text', '서브서브', '서브2'],
+      button_text: ['btn_text', 'button', 'button_text', 'btn', '버튼', '버튼텍스트'],
+      filename_suffix: ['file_suffix', 'filename_suffix', 'file_sfx', 'output_suffix', '파일접미사', '파일_접미사'],
+      logo_url: ['logo', 'logo_url', '로고', '로고url'],
+      extra: ['extra', 'extra_instructions', 'instructions', 'notes', '추가', '추가지시', '비고']
+    };
+    const idx = {};
+    Object.keys(aliasMap).forEach(key => {
+      idx[key] = header.findIndex(h => aliasMap[key].includes(h));
+    });
+    const get = (c, key) => (idx[key] >= 0 ? (c[idx[key]] || '') : '');
+    const dataLines = lines.slice(1);
+    const rows = await Promise.all(dataLines.map(async (line) => {
+      const c = splitLine(line);
+      const logo_url = get(c, 'logo_url');
+      const logo_base64 = (logo_url && logo_url.startsWith('http') && !logo_url.includes('...')) ? await urlToBase64(logo_url) : null;
+      return {
+        filename: get(c, 'filename'),
+        suffix: get(c, 'suffix'),
+        original_text: get(c, 'original_text'),
+        main_title: get(c, 'main_title'),
+        subtitle: get(c, 'subtitle'),
+        sub_sub_text: get(c, 'sub_sub_text'),
+        button_text: get(c, 'button_text'),
+        filename_suffix: get(c, 'filename_suffix'),
+        logo: logo_base64,
+        extra_instructions: get(c, 'extra'),
+        position: 'tl',
+        scale: 100
+      };
+    }));
+    setTCsvData(rows);
+    setLastSyncTime(new Date().toLocaleTimeString());
+  };
+
+  const getTBannerLangs = (banner) => {
+    const bn = banner.name.replace(/\.[^.]+$/, '').toLowerCase().trim();
+    return tCsvData.filter(row => {
+      const cn = row.filename.replace(/\.[^.]+$/, '').toLowerCase().trim();
+      return bn === cn;
+    });
+  };
+
+  const generateTSingle = async (banner, langRow) => {
+    const key = `${banner.id}_${langRow.suffix}`;
+    setTResults(prev => ({ ...prev, [key]: { url: null, rawUrl: null, loading: true, error: null } }));
+    try {
+      const promptImages = [banner.src];
+      let refInputsStr = `- Image 1 (REF_1): Original Banner (Layout & Style Guide)\n`;
+      const guidelinesTemplate = await loadGuidelines();
+      const extraTextLine = langRow.sub_sub_text ? `- Extra text: "${langRow.sub_sub_text}"` : '';
+      const buttonLine = langRow.button_text ? `- Button: Draw a button with text "${langRow.button_text}" exactly where it was.` : `- NO BUTTON: Erase existing buttons completely.`;
+      const targetTextBlock = langRow.original_text ? `[TARGET TEXT TO REPLACE]\n- Original Text in REF_1 to erase: "${langRow.original_text}"\n(CRITICAL INSTRUCTION: Scan REF_1 to find this exact original text. Erase it completely, and put the new translated text in that exact location.)` : '';
+      const prompt = guidelinesTemplate
+        .replace('{{REF_INPUTS}}', refInputsStr)
+        .replace('{{ORIGINAL_TEXT}}', langRow.original_text || 'ALL EXISTING TEXT AND LETTERS')
+        .replace('{{ERASE_LOGO_LINE}}', '')
+        .replace('{{STYLE_RULE}}', '')
+        .replace('{{MAIN_TITLE}}', langRow.main_title)
+        .replace('{{SUBTITLE}}', langRow.subtitle)
+        .replace('{{EXTRA_TEXT_LINE}}', extraTextLine)
+        .replace('{{BUTTON_LINE}}', buttonLine)
+        .replace('{{EXTRA_INSTRUCTIONS}}', langRow.extra_instructions || 'Maintain strict design consistency.')
+        .replace('{{CRUCIAL_LINE}}', '')
+        .replace('{{MANUAL_REPROMPT}}', '')
+        .replace('{{TARGET_TEXT_BLOCK}}', targetTextBlock);
+      const rawUrl = await callGeminiAPI(prompt, promptImages);
+      const sizeKey = `${banner.w}x${banner.h}`;
+      const initScale = FIXED_LOGO_SCALES[sizeKey] || 100;
+      const finalUrl = await finalizeBannerPixel(rawUrl, banner.w, banner.h, langRow.logo, initScale, langRow.position);
+      setTResults(prev => ({ ...prev, [key]: { url: finalUrl, rawUrl, scale: initScale, loading: false } }));
+    } catch (e) {
+      setTResults(prev => ({ ...prev, [key]: { error: e.message, loading: false } }));
+    }
+  };
+
+  const generateTAll = async () => {
+    const matchedBanners = tBanners.filter(b => getTBannerLangs(b).length > 0);
+    if (matchedBanners.length === 0) return setError("매칭된 배너가 없습니다. CSV 파일명과 업로드 파일명을 확인하세요.");
+    setIsGenerating(true);
+    const tasks = [];
+    for (const banner of matchedBanners) {
+      for (const langRow of getTBannerLangs(banner)) { tasks.push(() => generateTSingle(banner, langRow)); }
+    }
+    await runInBatches(tasks, 3);
+    setIsGenerating(false);
+  };
+
+  const handleTExportZip = async () => {
+    if (!window.JSZip) { const s = document.createElement('script'); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; document.head.appendChild(s); await new Promise(r => s.onload = r); }
+    const zip = new window.JSZip(); let fileCount = 0;
+    for (const banner of tBanners) {
+      for (const langRow of getTBannerLangs(banner)) {
+        const key = `${banner.id}_${langRow.suffix}`;
+        const res = tResults[key];
+        if (res?.url) {
+          const folder = langRow.suffix || 'unnamed';
+          const sizePart = `${banner.w}x${banner.h}`;
+          const sfx = langRow.filename_suffix ? (langRow.filename_suffix.startsWith('_') ? langRow.filename_suffix : `_${langRow.filename_suffix}`) : '';
+          zip.folder(folder).file(`${sizePart}${sfx}.jpg`, res.url.split('base64,')[1], { base64: true });
+          fileCount++;
+        }
+      }
+    }
+    if (fileCount === 0) return alert("저장할 파일이 없습니다.");
+    const content = await zip.generateAsync({ type: "blob" });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(content); link.download = `translated_multi_${Date.now()}.zip`; link.click();
+  };
+
+  const tMatchedCount = tBanners.filter(b => getTBannerLangs(b).length > 0).length;
+  const tTotalLangs = tBanners.reduce((sum, b) => sum + getTBannerLangs(b).length, 0);
+
+  const inputBaseClass = "w-full bg-black border border-white/10 px-2.5 py-2 text-[11px] rounded outline-none focus:border-[#3264ff] transition-all text-slate-300 font-normal";
+
+  const sortedSourceBanners = [...sourceBanners].sort((a, b) => { if (a.id === masterBannerId) return -1; if (b.id === masterBannerId) return 1; return 0; });
+
+  return (
+    <div className="min-h-screen bg-[#0d0e12] text-[#e1e3e8] font-sans flex flex-col overflow-hidden text-left">
+      <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-black shrink-0 z-50">
+        <div className="flex items-center gap-6">
+          {!_lockedMode && (
+            <>
+              <div className="flex items-center gap-3">
+                <Globe className="w-6 h-6 text-[#3264ff]" />
+                <h1 className="text-xl font-black italic tracking-tighter text-white uppercase">BATCH TRANSLATOR</h1>
+              </div>
+              <div className="flex items-center bg-[#111217] rounded-md p-0.5 border border-white/5">
+                <button onClick={() => setActiveTab('resize')} className={`px-4 py-1.5 text-[9px] font-black uppercase tracking-wide rounded-sm transition-all ${activeTab === 'resize' ? 'bg-[#3264ff] text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <span className="flex items-center gap-2"><Maximize className="w-3 h-3" /> RESIZE <span className="font-normal text-[8px] opacity-70">(1배너 → 다규격 · 다언어)</span></span>
+                </button>
+                <button onClick={() => setActiveTab('translate')} className={`px-4 py-1.5 text-[9px] font-black uppercase tracking-wide rounded-sm transition-all ${activeTab === 'translate' ? 'bg-[#3264ff] text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <span className="flex items-center gap-2"><Languages className="w-3 h-3" /> TRANSLATE <span className="font-normal text-[8px] opacity-70">(다배너 → 다언어)</span></span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-left w-[320px]">
+            <button onClick={() => window.location.reload()} className="w-1/3 py-2.5 bg-black border border-[#2d2f36] text-white text-[11px] font-bold uppercase rounded-sm hover:bg-white/5 transition-all">RESET</button>
+            <button onClick={activeTab === 'resize' ? handleExportZip : handleTExportZip} className="flex-1 flex justify-center items-center gap-2 py-2.5 bg-[#3264ff] text-white text-[11px] font-bold uppercase rounded-sm hover:brightness-110 shadow-lg shadow-[#3264ff]/20 transition-all"><Archive className="w-4 h-4"/> <span>EXPORT (.ZIP)</span></button>
+        </div>
+      </header>
+
+      <main className="flex-1 flex overflow-hidden">
+        <aside className="w-[320px] border-r border-white/5 bg-[#090a0d] p-5 overflow-y-auto custom-scrollbar flex flex-col gap-5 shrink-0 z-30">
+            {/* 공통: API KEY (PROMO STUDIO 락 모드에서는 숨김) */}
+            {!_lockedMode && (
+            <div className="space-y-2">
+                <label className="text-[10px] font-black text-[#3264ff] uppercase tracking-widest flex items-center gap-2"><KeyRound className="w-4 h-4" /> <span>CONFIG</span></label>
+                <input type="password" value={userApiKey} onChange={e => setUserApiKey(e.target.value)} placeholder="API KEY" className="w-full bg-[#111217] border border-[#2d2f36] px-4 py-2.5 text-xs rounded-sm focus:border-[#3264ff] outline-none text-slate-300" />
+            </div>
+            )}
+
+            {activeTab === 'resize' ? (
+            <div className="space-y-4 pt-4 border-t border-white/5">
+                {/* 세트 번호 선택 또는 행 범위 */}
+                {csvSetNos.length > 0 ? (
+                <div className="space-y-1.5">
+                    <label className="text-[8px] font-black text-[#3264ff] uppercase tracking-widest flex items-center gap-1"><Hash className="w-3 h-3" /> <span>배너 세트 선택 (NO)</span></label>
+                    <div className="flex flex-wrap gap-1.5">
+                        {csvSetNos.map(no => (
+                            <button key={no} onClick={() => applySetNo(csvAllRows, no)} className={`px-3 py-1.5 text-[10px] font-black rounded-sm transition-all ${activeSetNo === no ? 'bg-[#3264ff] text-white' : 'bg-[#111217] text-slate-400 border border-[#2d2f36] hover:border-[#3264ff] hover:text-white'}`}>
+                                {no}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="text-[7px] text-slate-600">현재: <span className="text-[#3264ff] font-bold">NO.{activeSetNo}</span> · {languages.length}개 언어</p>
+                </div>
+                ) : (
+                <div className="space-y-1.5">
+                    <label className="text-[8px] font-black text-[#3264ff] uppercase tracking-widest flex items-center gap-1"><Hash className="w-3 h-3" /> <span>불러올 행 범위 (Start - End)</span></label>
+                    <div className="flex items-center gap-2">
+                        <input type="number" min="1" value={loadRange.start} onChange={e => setLoadRange(p => ({...p, start: parseInt(e.target.value) || 1}))} className="w-full bg-[#111217] border border-[#2d2f36] px-2 py-1.5 text-[10px] rounded-sm outline-none text-center text-slate-300 focus:border-[#3264ff]" />
+                        <span className="text-slate-700">-</span>
+                        <input type="number" min="1" value={loadRange.end} onChange={e => setLoadRange(p => ({...p, end: parseInt(e.target.value) || 100}))} className="w-full bg-[#111217] border border-[#2d2f36] px-2 py-1.5 text-[10px] rounded-sm outline-none text-center text-slate-300 focus:border-[#3264ff]" />
+                    </div>
+                </div>
+                )}
+
+                {/* Google Sheet URL */}
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-[#107c41] uppercase tracking-widest flex items-center gap-2"><LinkIcon className="w-4 h-4" /> <span>GOOGLE SHEET URL</span></label>
+                    <div className="flex gap-2">
+                        <div className="flex-1 relative">
+                            <input type="text" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} placeholder="Google Sheet URL..." className="w-full bg-[#111217] border border-[#2d2f36] px-3 py-2 text-[10px] rounded-sm focus:border-[#107c41] outline-none pr-8 transition-all text-slate-300" />
+                            {sheetUrl && <button onClick={() => {setSheetUrl(''); setLastSyncTime(null);}} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 hover:text-red-400"><X className="w-3 h-3"/></button>}
+                        </div>
+                        <button onClick={handleSheetFetch} disabled={isFetchingSheet || !sheetUrl.trim()} className="bg-[#107c41] text-white px-3 py-2 rounded-sm hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                          {isFetchingSheet ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                        </button>
+                    </div>
+                    {lastSyncTime && <p className="text-[7px] text-[#107c41] font-black uppercase tracking-widest px-1 animate-fade-in">● SYNCED: {lastSyncTime}</p>}
+                </div>
+
+                {/* CSV 업로드 */}
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-[#107c41] uppercase tracking-widest flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> <span>CSV 데이터</span></label>
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setIsDraggingCsv(true); }}
+                      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDraggingCsv(false); }}
+                      onDrop={(e) => { e.preventDefault(); setIsDraggingCsv(false); const file = e.dataTransfer.files[0]; if (file) { const reader = new FileReader(); reader.onload=(ev)=>parseCsvText(ev.target.result); reader.readAsText(file); } }}
+                      onClick={() => { const i = document.createElement('input'); i.type='file'; i.accept='.csv'; i.onchange=(e)=>{ const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload=(ev)=>parseCsvText(ev.target.result); r.readAsText(f); } }; i.click(); }}
+                      className={`flex flex-col items-center justify-center gap-2 py-3 border border-dashed rounded cursor-pointer transition-all ${isDraggingCsv ? 'border-[#107c41] bg-[#107c41]/10' : 'border-[#2d2f36] bg-[#0d0e12] hover:bg-white/5'}`}
+                    >
+                        <UploadCloud className={`w-4 h-4 ${isDraggingCsv ? 'text-[#107c41]' : 'text-slate-700'}`} />
+                        <span className={`text-[8px] font-black uppercase tracking-widest ${isDraggingCsv ? 'text-[#107c41]' : 'text-slate-500'}`}>Drop CSV File</span>
+                    </div>
+                </div>
+                {error && <div className="p-2 bg-red-950/30 border border-red-500/50 text-red-400 text-[10px] rounded animate-pulse">{error}</div>}
+                <div className="pt-2 space-y-2">
+                    <button onClick={generateMastersOnly} disabled={isGenerating || !masterBannerId} className="w-full py-3.5 bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/30 font-black text-xs rounded-md hover:bg-[#f59e0b] hover:text-white disabled:opacity-20 flex items-center justify-center gap-2 transition-all uppercase active:scale-95">
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-4 h-4" />} <span>STEP 1: 언어별 마스터 생성</span>
+                    </button>
+                    <button onClick={generateRestAll} disabled={isGenerating || sourceBanners.length <= 1} className="w-full py-3.5 bg-[#3264ff] text-white font-black text-xs rounded-md hover:brightness-110 disabled:opacity-20 flex items-center justify-center gap-2 transition-all uppercase active:scale-95 shadow-lg shadow-[#3264ff]/20">
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} <span>STEP 2: 전 규격 일괄 생성</span>
+                    </button>
+                </div>
+            </div>
+            ) : (
+            /* ── TRANSLATE 사이드바 ── */
+            <div className="space-y-4 pt-4 border-t border-white/5">
+                {/* 배너 업로드 */}
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-[#3264ff] uppercase tracking-widest flex items-center gap-2"><ImageIcon className="w-4 h-4" /> <span>배너 업로드</span></label>
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setIsDraggingTBoard(true); }}
+                      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDraggingTBoard(false); }}
+                      onDrop={async (e) => { e.preventDefault(); setIsDraggingTBoard(false); await handleTBannersUpload(Array.from(e.dataTransfer.files)); }}
+                      onClick={() => tBoardInputRef.current?.click()}
+                      className={`flex flex-col items-center justify-center gap-2 py-4 border border-dashed rounded cursor-pointer transition-all ${isDraggingTBoard ? 'border-[#3264ff] bg-[#3264ff]/10' : 'border-[#2d2f36] bg-[#0d0e12] hover:bg-white/5'}`}
+                    >
+                        <UploadCloud className={`w-5 h-5 ${isDraggingTBoard ? 'text-[#3264ff]' : 'text-slate-700'}`} />
+                        <span className={`text-[8px] font-black uppercase tracking-widest ${isDraggingTBoard ? 'text-[#3264ff]' : 'text-slate-500'}`}>배너 이미지 업로드</span>
+                        <input type="file" ref={tBoardInputRef} onChange={async e => { await handleTBannersUpload(Array.from(e.target.files)); }} multiple accept="image/*" className="hidden" />
+                    </div>
+                    {tBanners.length > 0 && (
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[8px] font-bold text-slate-500">{tBanners.length}개 업로드</span>
+                        <button onClick={() => { setTBanners([]); setTResults({}); }} className="text-[8px] font-bold text-slate-600 hover:text-red-400 transition-colors">Clear</button>
+                      </div>
+                    )}
+                </div>
+
+                {/* Google Sheet URL (translate 전용) */}
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-[#107c41] uppercase tracking-widest flex items-center gap-2"><LinkIcon className="w-4 h-4" /> <span>GOOGLE SHEET URL</span></label>
+                    <div className="flex gap-2">
+                        <div className="flex-1 relative">
+                            <input type="text" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} placeholder="Google Sheet URL..." className="w-full bg-[#111217] border border-[#2d2f36] px-3 py-2 text-[10px] rounded-sm focus:border-[#107c41] outline-none pr-8 transition-all text-slate-300" />
+                            {sheetUrl && <button onClick={() => {setSheetUrl(''); setLastSyncTime(null);}} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 hover:text-red-400"><X className="w-3 h-3"/></button>}
+                        </div>
+                        <button onClick={handleSheetFetchT} disabled={isFetchingSheet || !sheetUrl.trim()} className="bg-[#107c41] text-white px-3 py-2 rounded-sm hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                          {isFetchingSheet ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                        </button>
+                    </div>
+                </div>
+
+                {/* CSV 업로드 */}
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-[#107c41] uppercase tracking-widest flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> <span>CSV 데이터</span></label>
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setIsDraggingTCsv(true); }}
+                      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDraggingTCsv(false); }}
+                      onDrop={(e) => { e.preventDefault(); setIsDraggingTCsv(false); const file = e.dataTransfer.files[0]; if (file) { const reader = new FileReader(); reader.onload=(ev)=>parseTCsvText(ev.target.result); reader.readAsText(file); } }}
+                      onClick={() => { const i = document.createElement('input'); i.type='file'; i.accept='.csv'; i.onchange=(e)=>{ const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload=(ev)=>parseTCsvText(ev.target.result); r.readAsText(f); } }; i.click(); }}
+                      className={`flex flex-col items-center justify-center gap-2 py-3 border border-dashed rounded cursor-pointer transition-all ${isDraggingTCsv ? 'border-[#107c41] bg-[#107c41]/10' : 'border-[#2d2f36] bg-[#0d0e12] hover:bg-white/5'}`}
+                    >
+                        <UploadCloud className={`w-4 h-4 ${isDraggingTCsv ? 'text-[#107c41]' : 'text-slate-700'}`} />
+                        <span className={`text-[8px] font-black uppercase tracking-widest ${isDraggingTCsv ? 'text-[#107c41]' : 'text-slate-500'}`}>Drop CSV File</span>
+                    </div>
+                    {tCsvData.length > 0 && (
+                      <div className="space-y-1 px-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[8px] font-bold text-[#107c41]">● {tCsvData.length}행 로드됨</span>
+                          <button onClick={() => { setTCsvData([]); }} className="text-[8px] font-bold text-slate-600 hover:text-red-400 transition-colors">Clear</button>
+                        </div>
+                        <div className="text-[8px] text-slate-500">매칭: <span className="text-white font-bold">{tMatchedCount}</span>/{tBanners.length}배너 · <span className="text-white font-bold">{tTotalLangs}</span>건</div>
+                      </div>
+                    )}
+                    {lastSyncTime && activeTab === 'translate' && <p className="text-[7px] text-[#107c41] font-black uppercase tracking-widest px-1 animate-fade-in">● SYNCED: {lastSyncTime}</p>}
+                </div>
+
+                {/* CSV 포맷 안내 */}
+                <div className="bg-white/[0.02] rounded p-2.5 border border-white/5">
+                    <div className="text-[8px] font-bold text-slate-500 mb-1.5">CSV 컬럼 순서:</div>
+                    <div className="text-[7px] text-slate-600 leading-relaxed font-mono">파일명, 언어, 지울원문, 타이틀, 서브타이틀, 추가문구, 버튼, 파일접미사, 로고URL, 추가지시</div>
+                </div>
+
+                {error && <div className="p-2 bg-red-950/30 border border-red-500/50 text-red-400 text-[10px] rounded animate-pulse">{error}</div>}
+
+                {/* 생성 버튼 */}
+                <div className="pt-2">
+                    <button onClick={generateTAll} disabled={isGenerating || tMatchedCount === 0} className="w-full py-3.5 bg-[#3264ff] text-white font-black text-xs rounded-md hover:brightness-110 disabled:opacity-20 flex items-center justify-center gap-2 transition-all uppercase active:scale-95 shadow-lg shadow-[#3264ff]/20">
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} <span>전체 생성 ({tTotalLangs}건)</span>
+                    </button>
+                </div>
+            </div>
+            )}
+        </aside>
+
+        <div className="flex-1 flex flex-col overflow-hidden bg-[#0d0e12]">
+          {activeTab === 'resize' ? (
+            <div className="flex-1 overflow-auto custom-scrollbar">
+                <table className="border-collapse table-fixed min-w-full">
+                    <thead className="sticky top-0 z-40">
+                        <tr className="bg-[#090a0d] border-b border-white/10 shadow-2xl">
+                            <th className="w-[20%] min-w-[400px] p-4 text-left align-top sticky left-0 z-50 bg-[#0a0d14] border-r-2 border-[#3264ff]/40 shadow-[15px_0_30px_rgba(0,0,0,0.8)]">
+                                <div className="flex flex-col gap-4 p-1">
+                                    {/* 텍스트 제거 섹션 */}
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Type className="w-3 h-3" /> 지울 원문 텍스트 <span title="배너에서 지울 텍스트를 입력하면 AI가 해당 텍스트를 찾아 깔끔하게 제거합니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
+                                        <textarea rows="3" value={globalOriginalText} onChange={e => setGlobalOriginalText(e.target.value)} placeholder="예: 메이드 카페에서 일하게 된 모험가, ..." className="w-full bg-[#111217] border border-[#1e2028] px-3 py-2 text-[11px] rounded focus:border-[#3264ff]/50 outline-none text-slate-300 resize-y transition-colors" />
+                                    </div>
+
+                                    {/* 그래픽 제거 */}
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Scan className="w-3 h-3" /> 지울 그래픽/로고 <span title="텍스트로 지워지지 않는 뱃지, 아이콘 등을 캡처해서 올리면 AI가 추적하여 제거합니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
+                                        <CompactSingleUploader label="" image={globalLogoToErase} onUpload={setGlobalLogoToErase} onDelete={() => setGlobalLogoToErase(null)} icon={ImagePlus} height="h-16" />
+                                    </div>
+
+                                    {/* 질감 에셋 */}
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Layers className="w-3 h-3" /> TEXTURE <span title="질감/배경 에셋을 추가하면 AI가 참고하여 생성 시 변형을 줄입니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
+                                        <div
+                                            onDragOver={(e) => { e.preventDefault(); setIsDraggingTexture(true); }}
+                                            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDraggingTexture(false); }}
+                                            onDrop={async (e) => { e.preventDefault(); setIsDraggingTexture(false); const fs = Array.from(e.dataTransfer.files); for(let f of fs) { if(f.type.startsWith('image/')) { const m = await processImageMetadata(f); if(m) setTextureAssets(p => [...p, m.src]); } } }}
+                                            className={`grid grid-cols-4 gap-1 p-1 rounded border border-dashed transition-all ${isDraggingTexture ? 'border-[#3264ff] bg-[#3264ff]/10' : 'border-[#1e2028] bg-[#111217]'}`}
+                                        >
+                                            {textureAssets.map((img, idx) => (
+                                                <div key={idx} className="relative group aspect-square rounded-sm overflow-hidden bg-[#15171c]">
+                                                  <img src={img} alt="t" className="w-full h-full object-cover" />
+                                                  <button onClick={() => setTextureAssets(prev => prev.filter((_, i) => i !== idx))} className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3 h-3 text-red-400"/></button>
+                                                </div>
+                                            ))}
+                                            <div onClick={() => { const i = document.createElement('input'); i.type='file'; i.multiple=true; i.accept='image/*'; i.onchange=async(e)=> { const fs = Array.from(e.target.files); for(let f of fs) { const m = await processImageMetadata(f); if(m) setTextureAssets(p => [...p, m.src]); } }; i.click(); }} className="aspect-square border border-dashed border-[#1e2028] flex flex-col items-center justify-center cursor-pointer rounded-sm hover:bg-white/5 text-slate-700">
+                                              <Plus className="w-3.5 h-3.5"/>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 소스 배너 업로드 */}
+                                    <div className="space-y-2 pt-3 border-t border-white/5">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[9px] font-bold text-[#3264ff] uppercase tracking-widest flex items-center gap-1.5"><ImageIcon className="w-3 h-3" /> 가이드 배너 <span title="각 규격별 원본 배너를 다중 업로드하세요. 구도와 레이아웃의 기준이 됩니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
+                                            <div className="flex items-center gap-3 text-[8px] font-bold text-slate-600 uppercase">
+                                                <span>{sourceBanners.length} items</span>
+                                                {sourceBanners.length > 0 && <button onClick={() => {setSourceBanners([]); setMasterBannerId(null);}} className="hover:text-red-400 transition-colors">Clear</button>}
+                                            </div>
+                                        </div>
+                                        <div
+                                            onClick={() => boardInputRef.current?.click()}
+                                            onDragOver={(e) => { e.preventDefault(); setIsDraggingBoard(true); }}
+                                            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDraggingBoard(false); }}
+                                            onDrop={async (e) => { e.preventDefault(); setIsDraggingBoard(false); await handleSourceBannersUpload(Array.from(e.dataTransfer.files)); }}
+                                            className={`group h-20 border border-dashed rounded flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${isDraggingBoard ? 'border-[#3264ff] bg-[#3264ff]/10' : 'border-[#1e2028] bg-[#111217] hover:border-[#3264ff]/30'}`}
+                                        >
+                                            <UploadCloud className={`w-4 h-4 transition-colors ${isDraggingBoard ? 'text-[#3264ff]' : 'text-slate-700'}`} />
+                                            <p className={`text-[7px] font-bold ${isDraggingBoard ? 'text-[#3264ff]' : 'text-slate-600'} uppercase`}>DRAG & DROP</p>
+                                            <input type="file" ref={boardInputRef} onChange={async e => { await handleSourceBannersUpload(Array.from(e.target.files)); }} multiple accept="image/*" className="hidden" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </th>
+                            {languages.map((lang) => (
+                                <th key={lang.id} className="w-[20%] min-w-[400px] p-3 text-left align-top border-r border-white/5 relative">
+                                    <div className="relative flex flex-col gap-2 group/card animate-fade-in h-full p-1">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <h3 className="text-[11px] font-black text-white uppercase tracking-tight">{lang.suffix || '배너' + (languages.indexOf(lang) + 1)}</h3>
+                                            {languages.length > 1 && <button onClick={() => removeLanguage(lang.id)} className="w-5 h-5 text-slate-700 hover:text-red-400 flex items-center justify-center transition-colors"><X className="w-3 h-3"/></button>}
+                                        </div>
+
+                                        <input type="text" value={lang.main_title} onChange={e => updateLangField(lang.id, 'main_title', e.target.value)} placeholder="타이틀" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-2 text-[11px] rounded outline-none focus:border-[#3264ff]/50 text-slate-300 transition-colors" />
+                                        <input type="text" value={lang.subtitle} onChange={e => updateLangField(lang.id, 'subtitle', e.target.value)} placeholder="서브타이틀" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-2 text-[11px] rounded outline-none focus:border-[#3264ff]/50 text-slate-300 transition-colors" />
+                                        <input type="text" value={lang.sub_sub_text} onChange={e => updateLangField(lang.id, 'sub_sub_text', e.target.value)} placeholder="추가 문구" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-2 text-[11px] rounded outline-none focus:border-[#3264ff]/50 text-slate-300 transition-colors" />
+                                        <input type="text" value={lang.button_text} onChange={e => updateLangField(lang.id, 'button_text', e.target.value)} placeholder="버튼" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-2 text-[11px] rounded outline-none focus:border-[#3264ff]/50 text-slate-300 transition-colors" />
+
+                                        <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-white/5">
+                                            <div className="relative">
+                                                <input type="text" value={lang.suffix} onChange={e => updateLangField(lang.id, 'suffix', e.target.value)} placeholder="폴더명" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-1.5 text-[10px] rounded outline-none focus:border-[#3264ff]/50 text-slate-400 transition-colors" />
+                                            </div>
+                                            <div className="relative flex items-center gap-1">
+                                                <input type="text" value={lang.filename_suffix} onChange={e => updateLangField(lang.id, 'filename_suffix', e.target.value)} placeholder="파일 접미사" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-1.5 text-[10px] rounded outline-none focus:border-[#3264ff]/50 text-slate-400 transition-colors" />
+                                                <span title="ZIP 다운로드 시 폴더명과 파일명 접미사에 사용됩니다."><Info className="w-3 h-3 text-slate-600 cursor-help shrink-0" /></span>
+                                            </div>
+                                        </div>
+
+                                        <div className="relative">
+                                            <textarea rows="1" value={lang.extra_instructions} onChange={e => updateLangField(lang.id, 'extra_instructions', e.target.value)} placeholder="추가 지시사항" className="w-full bg-[#111217] border border-[#1e2028] px-2.5 py-2 text-[10px] rounded outline-none focus:border-[#3264ff]/50 text-slate-400 resize-none transition-colors" />
+                                            <span title="AI에 전달할 추가 프롬프트. 폰트 스타일, 색상 등 세부 지시를 넣을 수 있습니다." className="absolute top-2 right-2"><Info className="w-3 h-3 text-slate-600 cursor-help" /></span>
+                                        </div>
+
+                                        {/* 로고 */}
+                                        <div className="pt-1.5 border-t border-white/5 space-y-2">
+                                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><LayoutTemplate className="w-3 h-3" /> 로고 <span title="생성된 배너에 합성할 로고. 위치와 크기를 조절할 수 있습니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
+                                            <div className="flex items-start gap-2.5">
+                                                <div className="w-16 shrink-0">
+                                                    <CompactSingleUploader label="" image={lang.logo} onUpload={(img) => updateLangField(lang.id, 'logo', img)} onDelete={() => updateLangField(lang.id, 'logo', null)} height="h-16" icon={LayoutTemplate} />
+                                                </div>
+                                                <div className="flex-1 flex flex-col gap-1.5">
+                                                    <div className="grid grid-cols-4 gap-px">
+                                                      {['tl','tr','bl','br'].map(p => (
+                                                        <button key={p} onClick={() => updateLangField(lang.id, 'position', p)} className={`py-1 text-[7px] font-black rounded-sm transition-all ${lang.position === p ? 'bg-[#3264ff] text-white' : 'bg-[#111217] text-slate-600'} text-center`}><span>{p.toUpperCase()}</span></button>
+                                                      ))}
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <input type="range" min="20" max="250" value={lang.scale} onChange={e => updateLangField(lang.id, 'scale', Number(e.target.value))} className="flex-1" />
+                                                        <span className="text-[8px] font-bold text-slate-500 shrink-0 w-7 text-right">{lang.scale}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 마스터 배너 — 썸네일로만 표시 (큰 결과는 아래 행에서) */}
+                                        <div className="pt-2 border-t border-white/5 space-y-1.5">
+                                            <label className="text-[9px] font-bold text-[#f59e0b] uppercase tracking-widest flex items-center gap-1.5"><Crown className="w-3 h-3" /> 마스터 배너 <span title="STEP 1에서 자동 생성되거나, 직접 업로드한 마스터가 나머지 규격 생성의 스타일 기준이 됩니다."><Info className="w-3 h-3 text-slate-600 cursor-help" /></span></label>
+                                            <div className="flex items-center gap-2">
+                                                {lang.master_style_image ? (
+                                                    <div className="relative group w-16 h-16 shrink-0 rounded overflow-hidden border border-[#f59e0b]/30 bg-[#111217]">
+                                                        <img src={lang.master_style_image} alt="마스터" className="w-full h-full object-cover" />
+                                                        <button onClick={() => updateLangField(lang.id, 'master_style_image', null)} className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><X className="w-3 h-3 text-red-400" /></button>
+                                                    </div>
+                                                ) : (
+                                                    <CompactSingleUploader label="" image={null} onUpload={(img) => updateLangField(lang.id, 'master_style_image', img)} onDelete={() => {}} icon={Crown} height="h-16" />
+                                                )}
+                                                <span className="text-[7px] text-slate-600 leading-tight">{lang.master_style_image ? 'STEP 1 결과 또는 직접 업로드' : '대기중'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </th>
+                            ))}
+                            <th className="w-16 h-full relative group cursor-pointer text-center" onClick={addLanguage}>
+                                <div className="absolute inset-y-0 left-0 w-px bg-white/5 group-hover:bg-[#3264ff]/50 transition-colors" />
+                                <div className="h-full flex items-center justify-center text-center">
+                                    <div className="w-9 h-9 bg-[#3264ff] text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform opacity-80 group-hover:opacity-100"><Plus className="w-5 h-5" /></div>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sortedSourceBanners.map((banner, bIdx) => {
+                            const isMaster = banner.id === masterBannerId;
+                            return (
+                            <tr key={banner.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group/row">
+                                <td className={`p-4 align-top sticky left-0 z-30 ${isMaster ? 'bg-[#121c36] border-r-2 border-[#3264ff]/60' : 'bg-[#0a0d14] border-r-2 border-[#3264ff]/40 group-hover/row:bg-[#111622]'} shadow-[15px_0_30px_rgba(0,0,0,0.8)] transition-colors`}>
+                                    {isMaster && <div className="absolute top-0 left-0 w-1 h-full bg-[#3264ff]" />}
+                                    <div className="space-y-3 text-left">
+                                        <div className="flex items-center gap-2.5">
+                                          <span className="w-6 h-6 flex items-center justify-center bg-[#1a1c23] rounded-full text-[9px] font-black text-slate-500 text-center">{bIdx + 1}</span>
+                                          <span className="text-[11px] font-black text-white italic uppercase tracking-tighter">{banner.w}x{banner.h}</span>
+                                          {isMaster && <span className="bg-[#f59e0b] text-white text-[8px] px-1.5 py-0.5 rounded-sm inline-flex items-center gap-1 font-black uppercase shadow-lg shadow-[#f59e0b]/20"><Crown className="w-3 h-3"/> Master</span>}
+                                        </div>
+                                        <div className={`relative w-full rounded border overflow-hidden transition-all flex flex-col items-center justify-center ${isMaster ? 'border-[#f59e0b]/50 bg-black' : 'bg-black/40 border-white/5 shadow-inner group-hover/row:border-[#3264ff]/30'}`}>
+                                            <img src={banner.src} className="max-w-full h-auto object-contain block transition-all" alt="s" />
+                                        </div>
+                                        <div className="flex items-center justify-between px-1 w-full">
+                                            <div className="text-[8px] font-bold text-slate-500 uppercase truncate text-left flex-1">{banner.name}</div>
+                                            {!isMaster && <button onClick={() => {setMasterBannerId(banner.id); setStyleReference(banner.src);}} className="text-[8px] font-bold text-slate-500 hover:text-[#3264ff] transition-colors">마스터 지정</button>}
+                                        </div>
+                                    </div>
+                                </td>
+                                {languages.map(lang => {
+                                    const res = results?.[banner.id]?.[lang.id];
+                                    return (
+                                        <td key={lang.id} className="p-4 align-top border-r border-white/5 max-w-[600px]">
+                                            <div className={`relative bg-[#090a0d] rounded border shadow-inner transition-all flex flex-col gap-2 ${res?.url || res?.loading ? 'p-2 shadow-2xl border-white/5' : 'p-3 min-h-[160px] bg-black/20 border-white/5'} ${isMaster ? 'ring-1 ring-[#f59e0b]/20' : ''}`}>
+                                                {/* 상단: 마스터 배지 + 버튼 */}
+                                                <div className="flex items-center justify-between px-1">
+                                                    <div className="flex items-center gap-2">
+                                                        {isMaster && <span className="bg-[#f59e0b] text-white text-[7px] px-1.5 py-0.5 rounded-sm inline-flex items-center gap-1 font-black uppercase"><Crown className="w-2.5 h-2.5"/> Master</span>}
+                                                        <span className="text-[8px] font-bold text-slate-500 uppercase">{lang.suffix || ''}</span>
+                                                    </div>
+                                                    <div className="flex gap-1.5 shrink-0">
+                                                        <button onClick={() => generateSingleResult(banner, lang, res?.prompt)} className="p-1 bg-white/5 rounded-sm hover:bg-white/10 text-slate-500 transition-all"><RotateCcw className="w-3 h-3"/></button>
+                                                        {res?.url && (
+                                                          <button onClick={() => { const a = document.createElement('a'); a.href = res.url; a.download = getOutputFileName(banner, lang); a.click(); }} className="p-1 bg-[#3264ff]/10 rounded-sm text-[#3264ff] hover:bg-[#3264ff] hover:text-white transition-all"><Download className="w-3 h-3" /></button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {/* 로고 사이즈 — 결과 있을 때만 */}
+                                                {res?.url && (
+                                                <div className="flex items-center gap-2 px-1">
+                                                    <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest shrink-0">로고 사이즈</span>
+                                                    <input type="range" min="10" max="250" value={res.scale || 100} onChange={e => updateLogoResult(banner.id, lang.id, Number(e.target.value))} className="w-24" />
+                                                    <span className="text-[7px] font-black text-[#3264ff] shrink-0">{res.scale || 100}%</span>
+                                                </div>
+                                                )}
+                                                <div className="relative flex flex-col gap-3 pb-1 w-full">
+                                                    {res?.url && (
+                                                        <div className="relative group/img w-full animate-fade-in flex justify-center bg-black/20 rounded border border-white/5">
+                                                            <img src={res.url} className="max-w-full h-auto object-contain block" alt="Output" />
+                                                            <button onClick={() => { const a = document.createElement('a'); a.href = res.url; a.download = getOutputFileName(banner, lang); a.click(); }} className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded hover:bg-[#3264ff] opacity-0 group-hover/img:opacity-100 transition-all"><Download className="w-3 h-3" /></button>
+                                                        </div>
+                                                    )}
+                                                    {res?.loading && (
+                                                      <div className="flex flex-col items-center justify-center w-full min-h-[160px] gap-2 animate-pulse text-center bg-white/[0.02] rounded border border-dashed border-white/10">
+                                                        <Loader2 className="w-5 h-5 text-[#3264ff] animate-spin" />
+                                                        <span className="text-[7px] font-black text-[#3264ff] tracking-[0.1em] uppercase">RENDERING...</span>
+                                                      </div>
+                                                    )}
+                                                    {(!res?.loading && res?.error && !res?.url) && (
+                                                      <div className="flex items-center justify-center w-full min-h-[160px]">
+                                                        <div className="text-red-500 text-[9px] font-bold text-center px-2 leading-tight bg-red-950/30 p-2 rounded border border-red-500/30">{res.error}</div>
+                                                      </div>
+                                                    )}
+                                                    {(!res?.loading && !res?.url && !res?.error) && (() => {
+                                                      const masterImg = isMaster ? lang.master_style_image : null;
+                                                      return masterImg ? (
+                                                        <div className="relative w-full rounded border border-[#f59e0b]/50 overflow-hidden bg-black">
+                                                          <img src={masterImg} className="w-full h-auto object-contain block" alt="master" />
+                                                        </div>
+                                                      ) : (
+                                                        <div className="flex items-center justify-center w-full min-h-[160px]"><Zap className="w-7 h-7 opacity-5" /></div>
+                                                      );
+                                                    })()}
+                                                </div>
+                                                {res?.url && (
+                                                    <div className="mt-1 px-1">
+                                                        <div className="flex gap-1.5 items-center bg-black/40 p-1.5 rounded-sm border border-white/5 focus-within:border-[#3264ff]/40 transition-all">
+                                                            <MessageSquareText className="w-3.5 h-3.5 text-slate-700 ml-0.5 shrink-0" />
+                                                            <input type="text" value={res.prompt || ''} onChange={e => setResults(prev => ({...prev, [banner.id]: {...prev[banner.id], [lang.id]: {...res, prompt: e.target.value}}}))} onKeyDown={e => e.key === 'Enter' && generateSingleResult(banner, lang, res.prompt)} placeholder="Prompt..." className="flex-1 bg-transparent text-[9px] text-slate-300 outline-none" />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </td>
+                                    );
+                                })}
+                                <td className="bg-white/[0.01]" />
+                            </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+                {sourceBanners.length === 0 && (
+                  <div className="h-[40vh] flex flex-col items-center justify-center text-slate-800 gap-4 italic font-black uppercase tracking-widest text-center opacity-30">
+                    <ImageIcon className="w-14 h-14 mb-2" />
+                    <span>Awaiting Source Banners</span>
+                  </div>
+                )}
+            </div>
+          ) : (
+            /* ── TRANSLATE 메인 영역 ── */
+            <div className="flex-1 overflow-auto custom-scrollbar p-6">
+              {tBanners.length === 0 ? (
+                <div className="h-[40vh] flex flex-col items-center justify-center text-slate-800 gap-4 italic font-black uppercase tracking-widest text-center opacity-30">
+                  <Languages className="w-14 h-14 mb-2" />
+                  <span>Upload Banners & CSV</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {tBanners.map(banner => {
+                    const langs = getTBannerLangs(banner);
+                    const hasMatch = langs.length > 0;
+                    return (
+                      <div key={banner.id} className={`bg-[#111217] rounded-lg border animate-fade-in ${hasMatch ? 'border-[#3264ff]/20' : 'border-white/5'}`}>
+                        <div className="flex items-stretch gap-4 p-4">
+                          {/* 좌측: 원본 배너 썸네일 */}
+                          <div className="w-48 shrink-0 flex flex-col gap-2">
+                            <div className="text-[10px] font-black text-white truncate">{banner.name}</div>
+                            <div className="text-[9px] text-slate-500">{banner.w}×{banner.h}</div>
+                            <div className="w-full aspect-square rounded bg-black overflow-hidden border border-white/5">
+                              <img src={banner.src} className="w-full h-full object-contain" alt={banner.name} />
+                            </div>
+                            <div className="flex gap-1 flex-wrap">
+                              {hasMatch ? langs.map(l => {
+                                const key = `${banner.id}_${l.suffix}`;
+                                const res = tResults[key];
+                                return (
+                                  <span key={l.suffix} className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${res?.url ? 'bg-green-500/20 text-green-400' : res?.loading ? 'bg-[#3264ff]/20 text-[#3264ff] animate-pulse' : 'bg-[#3264ff]/10 text-[#3264ff]'}`}>{l.suffix}</span>
+                                );
+                              }) : (
+                                <span className="text-[8px] text-slate-600 font-bold">CSV 미매칭</span>
+                              )}
+                            </div>
+                            <button onClick={() => setTBanners(prev => prev.filter(b => b.id !== banner.id))} className="mt-auto self-start p-1 text-slate-700 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                          {/* 우측: 모든 언어 패널 가로 나열 */}
+                          <div className="flex-1 min-w-0">
+                            {langs.length > 0 ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                                {langs.map(langRow => {
+                                  const key = `${banner.id}_${langRow.suffix}`;
+                                  const res = tResults[key];
+                                  return (
+                                    <div key={langRow.suffix} className="bg-[#090a0d] rounded-lg p-3 border border-white/5 space-y-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-black text-[#3264ff] uppercase tracking-tight">{langRow.suffix}</span>
+                                        <div className="flex gap-1.5">
+                                          <button onClick={() => generateTSingle(banner, langRow)} disabled={isGenerating} className="p-1 bg-white/5 rounded-sm hover:bg-white/10 text-slate-500 transition-all disabled:opacity-30"><RotateCcw className="w-3 h-3" /></button>
+                                          {res?.url && <button onClick={() => { const a = document.createElement('a'); a.href = res.url; a.download = `${banner.w}x${banner.h}_${langRow.filename_suffix || langRow.suffix}.jpg`; a.click(); }} className="p-1 bg-[#3264ff]/10 rounded-sm text-[#3264ff] hover:bg-[#3264ff] hover:text-white transition-all"><Download className="w-3 h-3" /></button>}
+                                        </div>
+                                      </div>
+                                      <div className="space-y-1 text-[9px]">
+                                        {langRow.original_text && <div className="flex gap-2"><span className="text-slate-600 shrink-0 w-12">지울텍스트</span><span className="text-red-400/70 truncate">{langRow.original_text}</span></div>}
+                                        {langRow.main_title && <div className="flex gap-2"><span className="text-slate-600 shrink-0 w-12">타이틀</span><span className="text-slate-300 truncate">{langRow.main_title}</span></div>}
+                                        {langRow.subtitle && <div className="flex gap-2"><span className="text-slate-600 shrink-0 w-12">서브</span><span className="text-slate-400 truncate">{langRow.subtitle}</span></div>}
+                                        {langRow.button_text && <div className="flex gap-2"><span className="text-slate-600 shrink-0 w-12">버튼</span><span className="text-slate-400 truncate">{langRow.button_text}</span></div>}
+                                        {langRow.extra_instructions && <div className="flex gap-2"><span className="text-slate-600 shrink-0 w-12">추가지시</span><span className="text-slate-500 truncate">{langRow.extra_instructions}</span></div>}
+                                      </div>
+                                      {res?.url && (
+                                        <div className="relative group/img rounded overflow-hidden border border-white/5 bg-black/20">
+                                          <img src={res.url} className="w-full h-auto object-contain" alt="result" />
+                                          <button onClick={() => { const a = document.createElement('a'); a.href = res.url; a.download = `${banner.w}x${banner.h}_${langRow.filename_suffix || langRow.suffix}.jpg`; a.click(); }} className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded hover:bg-[#3264ff] opacity-0 group-hover/img:opacity-100 transition-all"><Download className="w-3 h-3" /></button>
+                                        </div>
+                                      )}
+                                      {res?.loading && (
+                                        <div className="flex flex-col items-center justify-center py-8 gap-2 animate-pulse bg-white/[0.02] rounded border border-dashed border-white/10">
+                                          <Loader2 className="w-5 h-5 text-[#3264ff] animate-spin" />
+                                          <span className="text-[7px] font-black text-[#3264ff] tracking-[0.1em] uppercase">RENDERING...</span>
+                                        </div>
+                                      )}
+                                      {res?.error && <div className="text-red-500 text-[9px] bg-red-950/30 p-2 rounded border border-red-500/30">{res.error}</div>}
+                                      {!res && <div className="flex items-center justify-center py-6 opacity-10"><Zap className="w-6 h-6" /></div>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-slate-600 text-[10px]">CSV에 "<span className="text-white font-bold mx-1">{banner.name.replace(/\.[^.]+$/, '')}</span>" 파일명과 매칭되는 데이터가 없습니다.</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+  <script>
+  // PROMO STUDIO iframe 환경 감지 → in-studio 클래스 부여
+  if (window.self !== window.top) {
+    document.documentElement.classList.add('in-studio');
+  }
+  </script>
+</body>
+</html>
