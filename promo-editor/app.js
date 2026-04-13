@@ -869,7 +869,11 @@
                     const cy = link.y + link.h / 2;
                     if (cy >= startY && cy <= endY) {
                         const relY = link.y - startY;
-                        anchorsHtml += `\n        <a href="${link.url}" target="_blank" style="position:absolute;display:block;z-index:10;left:${(link.x/tempCanvas.width*100).toFixed(3)}%;top:${(relY/sliceH*100).toFixed(3)}%;width:${(link.w/tempCanvas.width*100).toFixed(3)}%;height:${(link.h/sliceH*100).toFixed(3)}%;background-color:transparent;text-decoration:none;border:none;outline:none;cursor:pointer;"></a>`;
+                        // 클릭 영역을 상하 4px 확장해 위치 오차 보정
+                        const expandPx = 4;
+                        const adjY = Math.max(0, relY - expandPx);
+                        const adjH = link.h + expandPx * 2;
+                        anchorsHtml += `\n        <a href="${link.url}" target="_blank" style="position:absolute;display:block;z-index:10;left:${(link.x/tempCanvas.width*100).toFixed(3)}%;top:${(adjY/sliceH*100).toFixed(3)}%;width:${(link.w/tempCanvas.width*100).toFixed(3)}%;height:${(adjH/sliceH*100).toFixed(3)}%;background-color:transparent;text-decoration:none;border:none;outline:none;cursor:pointer;"></a>`;
                     }
                 });
 
@@ -1457,7 +1461,7 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
                     clone.querySelectorAll('.resizer-handle').forEach(el => el.remove());
                     htmlStr += `\n<div class="se-div se-popup-content" data-popup="${panel.id}" style="display:none;overflow:hidden;width:0;height:0;margin:0;padding:0;border:none;">${clone.innerHTML}</div>`;
                 });
-                htmlStr = buildInlinePopupHtml(htmlStr);
+                htmlStr = buildInlinePopupHtml(htmlStr, {}, true); // forPreview=true: onclick 방식
             }
 
             // rgb() → hex 변환
@@ -3991,7 +3995,7 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
         // 자식 패널 HTML → 인라인 onclick 팝업으로 변환 (사이냅에디터 호환)
         // 사이냅에디터는 <script> 블록을 strip하므로 반드시 onclick 인라인 방식 사용
         // 팝업 콘텐츠는 se-popup-content div에서 읽지 않고 onclick에 직접 인코딩
-        function buildInlinePopupHtml(exportHtml, popupImagePaths) {
+        function buildInlinePopupHtml(exportHtml, popupImagePaths, forPreview) {
             if (!childPanels.length) return exportHtml;
             popupImagePaths = popupImagePaths || {};
             // accentPicker가 기본값(#888888)일 경우 생성된 HTML에서 accent 색상 직접 추출
@@ -4073,8 +4077,13 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
                     'g'
                 );
                 result = result.replace(triggerRe, () => {
-                    // <a href="javascript:..."> 방식 — 사이냅에디터가 onclick/script를 strip해도 href는 보존
                     const btnStyle = `display:inline-flex;align-items:center;justify-content:center;width:1.375rem;height:1.375rem;border-radius:50%;background-color:${_acColor};color:#ffffff;font-size:0.75rem;font-weight:900;border:none;cursor:pointer;vertical-align:middle;margin:0 0.25rem;line-height:1;text-decoration:none;`;
+                    if (forPreview) {
+                        // 미리보기 iframe: onclick 방식 (sandbox에서 javascript: href 실행 안 됨)
+                        const safeOnclick = onclickCode.replace(/"/g, '&quot;');
+                        return `<button class="popup-trigger" data-popup="${id}" onclick="${safeOnclick}" style="${btnStyle}">+</button>`;
+                    }
+                    // 게시용: <a href="javascript:..."> — 사이냅에디터가 onclick을 strip해도 href는 보존
                     const hrefCode = `javascript:void((function(){${onclickCode}})())`;
                     return `<a class="popup-trigger" data-popup="${id}" href="${hrefCode}" style="${btnStyle}">+</a>`;
                 });
