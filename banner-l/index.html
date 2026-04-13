@@ -360,36 +360,58 @@ function App() {
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length <= 1) return;
     const splitLine = (line) => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
-    const header = splitLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'));
-    const hasNoCol = header.includes('no');
-    const noIdx = header.indexOf('no');
-    // no 컬럼 제외한 데이터 컬럼 인덱스 계산
-    const dataStart = hasNoCol ? 1 : 0; // no가 있으면 그 다음부터 데이터
+    const normalize = (s) => s.toLowerCase().replace(/[()[\]{}]/g, '').replace(/\s+/g, '_').replace(/^_+|_+$/g, '');
+    const header = splitLine(lines[0]).map(normalize);
+    const aliasMap = {
+      no:            ['no', '번호', 'number', 'num'],
+      suffix:        ['suffix', 'lang', 'language', 'lang_code', '언어', '접미사'],
+      original_text: ['original_text', 'original', 'erase_text', 'target_text', 'source_text', '원문', '지울텍스트', '지울_텍스트'],
+      main_title:    ['title', 'main_title', 'maintitle', '타이틀', '제목'],
+      subtitle:      ['sub_text', 'subtitle', 'sub', '서브', '서브텍스트', '서브_텍스트'],
+      sub_sub_text:  ['sub_sub_text', 'sub2', '서브서브', '서브2'],
+      button_text:   ['btn_text', 'button', 'button_text', 'btn', '버튼', '버튼텍스트'],
+      filename_suffix: ['file_suffix', 'filename_suffix', 'file_sfx', 'output_suffix', '파일접미사', '파일_접미사'],
+      logo_url:      ['logo', 'logo_url', '로고', '로고url'],
+      extra:         ['extra', 'extra_instructions', 'instructions', 'notes', '추가', '추가지시', '비고']
+    };
+    const idx = {};
+    Object.keys(aliasMap).forEach(key => {
+      idx[key] = header.findIndex(h => aliasMap[key].includes(h));
+    });
+    const get = (c, key) => (idx[key] >= 0 ? (c[idx[key]] || '') : '');
+    const hasNoCol = idx['no'] >= 0;
     const allDataLines = lines.slice(1);
-    const allRows = await Promise.all(allDataLines.map(async (line, idx) => {
+    const allRows = await Promise.all(allDataLines.map(async (line, i) => {
       const c = splitLine(line);
-      const no = hasNoCol ? (c[noIdx] || '').trim() : null;
-      const d = hasNoCol ? c.filter((_, i) => i !== noIdx) : c; // no 컬럼 제거
-      const suffix = d[0] || ''; const original_text = d[1] || ''; const title = d[2] || '';
-      const subtitle = d[3] || ''; const sub_sub_text = d[4] || ''; const btn_text = d[5] || '';
-      const file_suffix = d[6] || ''; const logo_url = d[7] || ''; const extra = d[8] || '';
+      const no = hasNoCol ? get(c, 'no').trim() : null;
+      const suffix = get(c, 'suffix');
+      const logo_url = get(c, 'logo_url');
       const logo_base64 = (logo_url && logo_url.startsWith('http') && !logo_url.includes('...')) ? await urlToBase64(logo_url) : null;
-      return { no, id: `lang-${suffix || Date.now() + idx}`, suffix, original_text, main_title: title, subtitle, sub_sub_text, button_text: btn_text, filename_suffix: file_suffix, logo: logo_base64 || languages[0]?.logo || null, position: 'tl', scale: 100, extra_instructions: extra, master_style_image: languages[0]?.master_style_image || null };
+      return {
+        no, id: `lang-${suffix || Date.now() + i}`, suffix,
+        original_text: get(c, 'original_text'),
+        main_title: get(c, 'main_title'),
+        subtitle: get(c, 'subtitle'),
+        sub_sub_text: get(c, 'sub_sub_text'),
+        button_text: get(c, 'button_text'),
+        filename_suffix: get(c, 'filename_suffix'),
+        logo: logo_base64 || languages[0]?.logo || null,
+        position: 'tl', scale: 100,
+        extra_instructions: get(c, 'extra'),
+        master_style_image: languages[0]?.master_style_image || null
+      };
     }));
 
     if (hasNoCol) {
-      // no 컬럼 있으면: 전체 저장 + 번호 목록 추출
       setCsvAllRows(allRows);
       const nos = [...new Set(allRows.map(r => r.no).filter(Boolean))];
       setCsvSetNos(nos);
-      // 첫 번째 번호 자동 선택
       if (nos.length > 0) {
         setActiveSetNo(nos[0]);
         applySetNo(allRows, nos[0]);
       }
       setLastSyncTime(new Date().toLocaleTimeString());
     } else {
-      // no 컬럼 없으면: 기존 방식 (행 범위)
       setCsvAllRows([]); setCsvSetNos([]); setActiveSetNo(null);
       const startIndex = Math.max(0, loadRange.start - 1);
       const endIndex = Math.min(allRows.length, loadRange.end);
