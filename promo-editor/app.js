@@ -4283,7 +4283,7 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
                         `[BACKGROUND]:`,
                         `If the uploaded image already contains a background, use THAT background faithfully.`,
                         `Do NOT add, replace, or invent any new background elements.`,
-                        `If the uploaded asset has a transparent/plain background, create a minimal complementary backdrop that matches the style of the asset \u2014 no elaborate scenes.`,
+                        `If the uploaded asset has a transparent/plain background, create a backdrop that is FULLY CONSISTENT with the asset's art style, color palette, and visual tone — the background and character must feel like they belong to the same world. Do NOT mix art styles (e.g. no photorealistic background behind a chibi/game-style character).`,
                         `[TEXT OVERLAY \u2014 VERBATIM]:`,
                         `Render the exact title text: "${finalTitle}"${finalSub ? ` and subtitle: "${finalSub}"` : ''}.`,
                         `Typography must match the style/mood of the uploaded asset. Do not invent other text.`,
