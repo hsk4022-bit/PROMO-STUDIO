@@ -149,16 +149,19 @@ html,body{height:100%;width:100%;font-family:'Pretendard',sans-serif;background:
     updateEmptyState();
   }
 
-  // Chrome 자동완성 강제 차단: 일단 비우고 localStorage 값만 복원
-  keyInput.value = '';
-  setTimeout(() => {
-    keyInput.value = '';
+  // Chrome 자동완성 강제 차단: localStorage 값만 복원하고 자동완성 값은 제거
+  function restoreFromStorage() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY) || '';
-      if (saved) keyInput.value = saved;
-    } catch(e){}
+      keyInput.value = saved;
+    } catch(e) { keyInput.value = ''; }
     updateEmptyState();
-  }, 100);
+  }
+  keyInput.value = '';
+  // Chrome autofill은 비동기로 늦게 실행되므로 여러 시점에 차단
+  setTimeout(restoreFromStorage, 50);
+  setTimeout(restoreFromStorage, 300);
+  setTimeout(restoreFromStorage, 800);
   updateEmptyState();
 
   // 비어있으면 페이지 진입 시 포커스 유도
