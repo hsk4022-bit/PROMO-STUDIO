@@ -11,7 +11,7 @@
   - `generateHashString(length)` — 해시 폴더명 규칙 (16자리)
   - `detectExistingHash()` — 수정 시 기존 해시 유지
   - `currentHashFolder` — 해시 상태
-  - `IMAGE_MODEL`, `CONTENT_MODEL` — Gemini 모델명
+  - `IMAGE_MODEL`, `CONTENT_MODEL` — Gemini 모델명 **(확인만 할 것, 절대 수정 금지)**
   - ZIP 구조 (`PROMO_SLICED/`, `PROMO_html/`)
 
 > 에이전트가 수동으로 HTML을 생성하더라도 **promo-editor가 만드는 결과물과 완전히 동일한 포맷**을 따라야 한다. 임의 폴더명·파일 구조·해시 규칙 생성 금지.
