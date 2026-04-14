@@ -72,7 +72,7 @@
   <div class="se-div" style="margin:0;padding:0;line-height:0;font-size:0;display:block;width:100%;"></div>
 
   <!-- 2번 블록: 컨텐츠 전체 래퍼 -->
-  <div class="se-div" style="background-color:${bgColor};margin:0;padding:clamp(24px,3.472vw,50px) clamp(16px,3.472vw,50px);display:block;width:100%;box-sizing:border-box;">
+  <div class="se-div" style="background-color:${bgColor};margin:0;padding:clamp(24px,3.472vw,50px) clamp(16px,3.472vw,40px);display:block;width:100%;box-sizing:border-box;">
     <!-- 섹션 se-div들이 형제로 수직 적층. 섹션 자체에 별도 좌우 패딩 추가 금지 (래퍼에서 처리) -->
   </div>
 
@@ -127,8 +127,8 @@
 
 # [섹션 구조 — 모든 섹션 동일 ⚠️ 일관성 위반 시 FAIL]
 
-<div class="se-div" style="background-color:${surfaceColor};border:1px solid ${borderColor};border-radius:0.875rem;padding:1.75rem clamp(16px,3.472vw,50px);">
-  <!-- 모든 섹션 좌우 패딩: clamp(16px,3.472vw,50px) — PC 50px, 모바일 16px -->
+<div class="se-div" style="background-color:${surfaceColor};border:1px solid ${borderColor};border-radius:0.875rem;padding:1.75rem clamp(16px,3.472vw,40px);">
+  <!-- 모든 섹션 좌우 패딩: clamp(16px,3.472vw,40px) — PC 50px, 모바일 16px -->
   <!-- 섹션 타이틀 -->
   <div class="se-div" style="margin-bottom:1rem;">
     <span style="display:inline-block;width:1.75rem;height:1.75rem;background-color:${accentColor};border-radius:50%;text-align:center;line-height:1.75rem;font-weight:900;color:#000000;font-size:0.875rem;margin-right:0.625rem;vertical-align:middle;">N</span>
@@ -143,7 +143,7 @@
 <p style="height:24px;margin:0;"></p>
 
 ## 섹션 일관성 규칙 (위반 시 FAIL)
-- **모든 섹션은 위 템플릿과 100% 동일한 구조를 사용해야 한다.** 섹션마다 border/border-radius/padding/background-color가 다르면 즉시 FAIL.
+- **모든 섹션 카드는 위 템플릿과 100% 동일한 구조를 사용해야 한다.** 섹션마다 border/border-radius/padding/background-color가 다르면 즉시 FAIL.
 - **모든 내부 div에 class="se-div" 필수.** class 없는 div 절대 금지.
 - 섹션 사이 간격: <p style="height:24px;margin:0;"></p> 로만 처리.
 - 테이블은 섹션 se-div 안에 직접 배치. **추가 래퍼 div 금지.**
@@ -167,14 +167,20 @@
 - 표 데이터는 반드시 <table>. div 대체 절대 금지.
 - 테이블은 섹션 se-div 안에 직접 배치. **별도 래퍼 div 추가 금지.**
 - table: style="width:100%;border-collapse:collapse;table-layout:fixed;margin:0;"
-- th: style="padding:0.875rem 1rem;font-weight:700;color:${accentColor};border-bottom:1px solid ${borderColor};text-align:center;background-color:${surfaceColor};word-break:keep-all;line-height:1.4;font-size:inherit;"
-- td: style="padding:0.875rem 1rem;border-bottom:1px solid ${borderColor};color:${textColor};text-align:center;vertical-align:middle;word-break:break-all;overflow-wrap:anywhere;font-size:inherit;"
-- 짝수 행: background-color:${surfaceColor}
+- **thead/th (타이틀 행)**: style="padding:0.875rem 1rem;font-weight:700;color:${accentColor};border:1px solid ${borderColor};border-bottom:2px solid ${accentColor};text-align:center;background-color:${surfaceColor};word-break:keep-all;line-height:1.4;font-size:inherit;"
+- **tbody/td (내용 행)**: style="padding:0.875rem 1rem;border:1px solid ${borderColor};color:${textColor};text-align:center;vertical-align:middle;word-break:break-all;overflow-wrap:anywhere;font-size:inherit;background-color:transparent;"
+- **⚠️ 테이블 border 규칙 — 일관성 필수:**
+  - border 색상은 `${borderColor}` 사용. 배경이 어두우면 자연스럽게 어두운 색, 밝으면 밝은 색이 들어감.
+  - thead th: `border-bottom:2px solid ${accentColor}` (타이틀 구분선 강조) + `background-color:${surfaceColor}` + `color:${accentColor}`
+  - tbody td: `border:1px solid ${borderColor}` + `background-color:transparent`
+  - **같은 페이지 내 모든 테이블이 동일한 border 색상·두께·스타일을 사용해야 함.** 한 테이블은 진한 border, 다른 테이블은 연한 border이면 FAIL.
+- 짝수 행 배경색 구분 금지. tbody td는 모두 background-color:transparent 통일.
 - 모든 th·td에 width% 명시. colspan/rowspan 적극 활용.
 - 이미지 마커 (item1) 있을 때만 이미지 셀 생성. 마커 없으면 이미지 셀 생성 금지.
 - 데이터 없는 빈 행 생성 금지.
 - **테이블 스타일 완전 통일 필수**: 같은 페이지 내 모든 테이블의 th/td 인라인 style 값이 동일해야 함. 섹션마다 다른 스타일 절대 금지. 첫 번째 테이블과 마지막 테이블의 th 색상·배경·폰트가 반드시 일치해야 함.
-- **연속된 테이블 2개 이상**: 테이블 사이에 반드시 `<p style="height:16px;margin:0;"></p>` 간격 삽입. 테이블끼리 붙이지 말 것.
+- **테이블 위아래 간격 필수**: 테이블 앞뒤에 반드시 `<p style="height:8px;margin:0;"></p>` 간격 삽입. 텍스트와 테이블이 바로 붙으면 안 됨.
+- **연속된 테이블 2개 이상**: 테이블 사이에도 반드시 `<p style="height:16px;margin:0;"></p>` 간격 삽입. 테이블끼리 붙이지 말 것.
 
 ---
 
@@ -186,7 +192,7 @@
 - `[[중버튼]]` / `[[소버튼]]`도 동일 규칙: 괄호 2쌍이면 섹션 외부 독립 배치.
 
 ## 버튼 스타일
-- [대버튼]: <div class="se-div" style="padding:0;margin:0;text-align:center;"> 래퍼 안에 <a> 또는 <button> 배치. 래퍼 div에는 반드시 padding:0 — 패딩은 버튼 요소에만 적용.
+- [대버튼]: <div class="se-div" style="padding:0 clamp(16px,3.472vw,40px);margin:0;text-align:center;"> 래퍼 안에 <a> 또는 <button> 배치. 래퍼 div 좌우 패딩으로 버튼이 컨텐츠 끝에 붙지 않도록 한다.
   버튼 스타일: display:block;width:100%;padding:1.5rem 0;font-weight:800;border-radius:0.75rem;background-color:${accentColor};color:#000000;text-align:center;text-decoration:none;font-size:inherit;border:none;cursor:pointer;box-sizing:border-box;
 - [중버튼]: display:inline-block;padding:1rem 3.25rem;font-weight:700;border-radius:2rem;border:2px solid ${accentColor};color:${accentColor};text-decoration:none;
 - [소버튼]: display:inline-block;padding:0.625rem 1.5rem;font-size:inherit;border-radius:0.5rem;text-decoration:none;
@@ -233,14 +239,16 @@
 - 위치: `se-contents` 안 어디든 가능. 본문 직후, 또는 마지막 섹션 다음.
 - 내용: 원고에 있는 텍스트/테이블/이미지를 그대로 삽입. 임의 제목·라벨·헤더 생성 금지.
 - **이미지 마커는 본문/팝업 모두 무조건 모두 반영.** 동일 마커가 본문과 팝업 양쪽에 있으면 양쪽 다 `<img>` 태그로 삽입.
-- **팝업 콘텐츠는 반드시 밝은 테마로 작성 (배경 테마 무관).** 팝업은 항상 흰색(`#ffffff`) 배경 위에 표시되므로:
-  - 텍스트 색: `color:#1e293b` 또는 `color:#2d2d2d` (어두운 색만 사용)
-  - 테이블 th 배경: `background-color:#f1f5f9` 또는 `background-color:#f8fafc` (밝은 서피스)
-  - 테이블 th 텍스트: `color:${accentColor}` (포인트 색 사용 가능 — 배경이 밝으므로 대비 확보됨)
-  - 테이블 td 텍스트: `color:#1e293b`
-  - border: `border:1px solid #e2e8f0` 또는 `border:1px solid #d1d5db` (밝은 회색)
-  - **절대 금지**: 팝업 안에 어두운 배경색(`background-color:#1e293b` 등) 사용 금지. 본문이 다크 테마여도 팝업은 반드시 라이트 테마.
-- 테이블/이미지의 인라인 style은 위 팝업 규칙을 따르되, 이미지는 본문 동일 패턴 사용.
+- **팝업 콘텐츠는 본문과 동일한 테마로 작성.** 팝업은 본문과 같은 배경색(`${bgColor}`) 위에 표시되므로:
+  - 텍스트 색: 본문과 동일 — `color:${textColor}`
+  - 테이블 th 배경: `background-color:${surfaceColor}`
+  - 테이블 th 텍스트: `color:${accentColor}`
+  - 테이블 td 텍스트: `color:${textColor}`
+  - border: `border:1px solid ${borderColor}`
+  - 폰트: `font-family:'Pretendard',sans-serif;font-size:clamp(0.875rem,1.702vw,1rem);line-height:1.8;` — **본문과 완전 동일**
+  - 최소 폰트 사이즈: **13px 이상** 필수. 팝업 내 모든 텍스트·테이블·라벨에 적용.
+  - **핵심 원칙**: 팝업 콘텐츠를 본문에 그대로 붙여넣어도 이질감 없어야 함. 색상·폰트·간격·테이블 스타일 모두 본문 기준 그대로 사용.
+- 테이블/이미지의 인라인 style은 본문과 동일한 패턴 사용.
 
 ## 이벤트 위임 스크립트 (무조건)
 - promo-editor 표준 IIFE 패턴 그대로 사용. 다른 구현 금지.
@@ -326,7 +334,7 @@ document.body.appendChild(d);
 ✅ 본문 + 팝업 데이터 블록의 이미지 마커 매칭 = 노션 원본 마커 수
 ✅ 모든 섹션 se-div의 border/border-radius/background-color/padding 동일 (일관성)
 ✅ 텍스트-배경 대비 확인 (어두운 배경 → 밝은 텍스트 / 밝은 배경 → 어두운 텍스트)
-✅ 팝업 데이터 블록 내 모든 텍스트 color:#1e293b, 배경 밝은 톤 (라이트 테마 강제)
+✅ 팝업 데이터 블록 내 모든 텍스트·테이블·폰트가 본문과 동일 테마 (색상·폰트·최소 13px)
 ```
 
 ---

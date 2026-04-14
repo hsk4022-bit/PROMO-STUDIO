@@ -336,6 +336,14 @@
                 <span class="text-[9px] font-black text-slate-400">TXT</span>
                 <input type="color" id="textColorPicker" oninput="applyTextColor(this.value)" class="w-5 h-5 border-none cursor-pointer p-0 bg-transparent rounded" title="선택한 텍스트 색상 변경" value="#ffffff">
             </div>
+            <!-- 팔레트 프리셋 -->
+            <div class="relative">
+                <button onclick="renderBgVariants();getById('palettePanel').classList.toggle('hidden')" class="px-1.5 py-1 border border-slate-200 rounded-md text-xs font-bold bg-white hover:bg-slate-50 cursor-pointer" title="유사 배경색 추천">🎨</button>
+                <div id="palettePanel" class="hidden absolute z-[9999] bg-white border border-slate-200 rounded-xl shadow-xl mt-1 p-2 min-w-[210px]" style="top:100%;right:0;">
+                    <div class="text-[9px] font-black text-slate-400 uppercase mb-1.5 px-1">SIMILAR BG COLORS</div>
+                    <div id="paletteList" class="flex flex-col gap-0.5"></div>
+                </div>
+            </div>
             <div class="w-px bg-slate-200 h-6 mx-1"></div>
             <!-- 이미지 드롭다운 -->
             <div class="relative">
@@ -378,6 +386,13 @@
             <div id="divTools" style="display: none;" class="flex items-center border rounded-md bg-emerald-50 p-1 ml-2 gap-1">
                 <span class="text-[10px] font-black text-emerald-700 ml-1">라운드:</span>
                 <input type="number" id="divRadiusInput" class="style-input w-10 h-5 text-[10px] text-center border border-emerald-200 rounded outline-none text-emerald-900 font-bold" value="0" onchange="applyDivStyle('radius', this.value)">
+                <span class="text-[10px] font-black text-emerald-700 ml-1">패딩:</span>
+                <input type="number" id="divPaddingInput" class="style-input w-10 h-5 text-[10px] text-center border border-emerald-200 rounded outline-none text-emerald-900 font-bold" value="0" onchange="applyDivStyle('padding', this.value)">
+                <label class="flex items-center gap-0.5 ml-1 cursor-pointer">
+                    <input type="checkbox" id="divShadowInput" class="w-3 h-3 accent-emerald-600" onchange="applyDivStyle('shadow', this.checked)">
+                    <span class="text-[10px] font-black text-emerald-700">그림자</span>
+                </label>
+                <input type="color" id="divBgColorInput" class="w-5 h-5 border border-emerald-200 rounded cursor-pointer ml-1" value="#ffffff" onchange="applyDivStyle('bgColor', this.value)">
             </div>
 
             <!-- 영상 삽입 미리보기 (파일 선택 후 표시) -->
