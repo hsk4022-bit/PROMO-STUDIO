@@ -78,13 +78,14 @@
                 }
             }
             if (!color) color = getById('bgPicker')?.dataset?.accent || '#888888';
-            return `display:inline-flex;align-items:center;justify-content:center;width:1.375rem;height:1.375rem;border-radius:50%;background-color:${color};color:#ffffff;font-size:0.75rem;font-weight:900;border:none;cursor:pointer;vertical-align:middle;margin:0 0.25rem;line-height:1;`;
+            const _btnTextColor = isDarkColor(color) ? '#ffffff' : '#000000';
+            return `display:inline-flex;align-items:center;justify-content:center;width:1.375rem;height:1.375rem;border-radius:50%;background-color:${color};color:${_btnTextColor};font-size:0.75rem;font-weight:900;border:none;cursor:pointer;vertical-align:middle;margin:0 0.25rem;line-height:1;`;
         }
         // 에디터 DOM 안 popup-trigger 버튼의 style attribute를 hex로 강제 재설정
         // 브라우저 contenteditable이 hex → rgb() 변환하므로 setAttribute로 덮어씀
         function fixPopupTriggerStyles() {
             const style = getPopupBtnStyle();
-            document.querySelectorAll('#contentArea .popup-trigger[data-popup]').forEach(el => {
+            document.querySelectorAll('#contentArea .popup-trigger[data-popup], [id^="childArea_"] .popup-trigger[data-popup]').forEach(el => {
                 const extra = el.tagName === 'A' ? 'text-decoration:none;' : '';
                 el.setAttribute('style', style + extra);
             });
@@ -149,6 +150,88 @@
             const or=parseInt(overlayHex.slice(1,3),16), og=parseInt(overlayHex.slice(3,5),16), ob=parseInt(overlayHex.slice(5,7),16);
             return '#' + [br*(1-alpha)+or*alpha, bg_*(1-alpha)+og*alpha, bb*(1-alpha)+ob*alpha]
                 .map(v => clamp(v).toString(16).padStart(2,'0')).join('');
+        }
+
+        // ── 컬러 하모니: 배경색 기반 팔레트 자동 생성 ──
+        function hexToHsl(hex) {
+            let r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+            const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min;
+            let h = 0, s = 0, l = (max+min)/2;
+            if (d > 0) {
+                s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+                if (max === r) h = ((g-b)/d + (g<b?6:0))/6;
+                else if (max === g) h = ((b-r)/d+2)/6;
+                else h = ((r-g)/d+4)/6;
+            }
+            return [h*360, s, l];
+        }
+        function hslToHex(h, s, l) {
+            h = ((h%360)+360)%360;
+            const a = s * Math.min(l, 1-l);
+            const f = n => { const k = (n+h/30)%12; return Math.round(255*(l - a*Math.max(-1, Math.min(k-3, 9-k, 1)))); };
+            return '#' + [f(0),f(8),f(4)].map(v => Math.min(255,Math.max(0,v)).toString(16).padStart(2,'0')).join('');
+        }
+        function generatePalette(bgHex) {
+            const [bh, bs, bl] = hexToHsl(bgHex);
+            const dark = bl < 0.5;
+            // accent: 분할보색 (+150°), 채도 0.45~0.65 (세련된 톤, 원색 방지)
+            const accentH = (bh + 150) % 360;
+            const accentS = Math.min(0.65, Math.max(0.45, bs > 0.3 ? bs * 0.7 : 0.5));
+            const accentL = dark ? Math.min(0.7, Math.max(0.55, 0.62)) : Math.min(0.5, Math.max(0.35, 0.42));
+            const accent = hslToHex(accentH, accentS, accentL);
+            const surface = blendHex(bgHex, dark ? '#ffffff' : '#000000', 0.08);
+            const border = blendHex(bgHex, dark ? '#ffffff' : '#000000', 0.15);
+            const text = dark ? '#e8e8e8' : '#2d2d2d';
+            const sub = dark ? '#9ca3af' : '#6b7280';
+            return { bg: bgHex, accent, surface, border, text, sub };
+        }
+
+        // ── 유사 배경색 추천 (현재 배경 기반 톤 변형 5개) ──
+        function generateBgVariants(bgHex) {
+            const [h, s, l] = hexToHsl(bgHex);
+            const variants = [];
+            // 색상(hue) ±3°~8°, 채도 ±0.02, 명도 ±0.02~0.04 — 흡사한 범위
+            const offsets = [
+                { dh: -7, ds: 0.02, dl: -0.03 },
+                { dh: -3, ds: -0.01, dl: 0.02 },
+                { dh: 4,  ds: 0.01, dl: -0.02 },
+                { dh: 8,  ds: -0.02, dl: 0.03 },
+                { dh: -5, ds: 0.02, dl: -0.04 },
+                { dh: 3,  ds: -0.01, dl: 0.04 },
+                { dh: -8, ds: 0.01, dl: -0.01 },
+                { dh: 6,  ds: 0.02, dl: 0.02 },
+            ];
+            offsets.forEach(o => {
+                const nh = (h + o.dh + 360) % 360;
+                const ns = Math.min(1, Math.max(0, s + o.ds));
+                const nl = Math.min(0.95, Math.max(0.05, l + o.dl));
+                variants.push(hslToHex(nh, ns, nl));
+            });
+            return variants;
+        }
+
+        function renderBgVariants() {
+            const panel = getById('palettePanel');
+            const list = getById('paletteList');
+            if (!panel || !list) return;
+            const currentBg = getById('bgPicker')?.value || '#0e0b48';
+            const variants = generateBgVariants(currentBg);
+            list.innerHTML = '';
+            variants.forEach(color => {
+                const btn = document.createElement('button');
+                btn.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;border:none;background:none;cursor:pointer;border-radius:0.375rem;width:100%;text-align:left;font-family:inherit;';
+                btn.onmouseover = () => btn.style.background = '#f1f5f9';
+                btn.onmouseout = () => btn.style.background = 'none';
+                const textPreview = isDarkColor(color) ? '#e8e8e8' : '#2d2d2d';
+                btn.innerHTML = `<span style="width:24px;height:24px;border-radius:4px;background:${color};border:1px solid #e2e8f0;flex-shrink:0;"></span><span style="font-size:11px;font-weight:600;color:#374151;">${color}</span><span style="font-size:9px;color:${textPreview};background:${color};padding:1px 4px;border-radius:3px;">Aa</span>`;
+                btn.onclick = () => {
+                    changeBg(color, true); // 유사색이므로 텍스트색 반전 안 함
+                    getById('bgPicker').value = color;
+                    showToast('배경색 변경: ' + color);
+                    renderBgVariants(); // 새 배경 기반으로 추천 갱신
+                };
+                list.appendChild(btn);
+            });
         }
 
         // base64 데이터URI에서 mimeType 추출
@@ -422,27 +505,16 @@
 
             // 테이블 border 강화 — htmlToImage foreignObject 렌더링에서 1px border 손실 방지
             // 클론은 #contentArea 밖이므로 CSS 셀렉터(#contentArea td) 미적용 → 인라인으로 모든 border 강제
+            // 테이블 기본 속성 보장 — border 색은 AI 생성 인라인 스타일 그대로 유지
             renderClone.querySelectorAll('table').forEach(tbl => {
                 tbl.style.borderCollapse = 'collapse';
-                tbl.style.width = '100%';
-                tbl.style.tableLayout = 'fixed';
+                if (!tbl.style.width) tbl.style.width = '100%';
+                if (!tbl.style.tableLayout) tbl.style.tableLayout = 'fixed';
                 tbl.querySelectorAll('td, th').forEach(cell => {
-                    // 인라인 border가 없거나 1px이면 1.5px로 강화
-                    const inlineBorder = cell.style.border || cell.style.borderWidth || '';
-                    if (!inlineBorder || inlineBorder.includes('1px') || inlineBorder === '0') {
-                        cell.style.border = '1.5px solid #d9d9d9';
-                    }
-                    // padding도 보장
                     if (!cell.style.padding) cell.style.padding = '0.875rem 1rem';
                     cell.style.boxSizing = 'border-box';
-                });
-                // thead 하단 구분선 강화
-                const ac = getById('accentPicker')?.value;
-                const headBorderColor = (ac && ac !== '#888888') ? ac : '#8b7355';
-                tbl.querySelectorAll('thead th, thead td').forEach(cell => {
-                    cell.style.borderBottom = '1px solid ' + headBorderColor;
-                    cell.style.fontWeight = '700';
-                    cell.style.textAlign = 'center';
+                    cell.style.verticalAlign = 'middle';
+                    cell.style.lineHeight = '1.4';
                 });
             });
 
@@ -502,7 +574,7 @@
 
 
         // master_guidelines.md 내용 인라인 (file:// 환경 CORS 오류 방지)
-        const MASTER_GUIDELINES_INLINE = "[System Prompt: High-End HTML Render Engine v4.0]\n\n# Role\n너는 세계 최고 수준의 게임 프로모션 디자이너다. 단순·밀도없는 레이아웃은 FAIL.\n\n---\n\n# [제0원칙 — 원고 텍스트 절대 우선]\n- 원고의 모든 문장·단어·숫자·특수문자를 단 한 글자도 바꾸지 말고 그대로 출력.\n- 요약·압축·윤문·재해석 절대 금지. 원고에 10줄이면 HTML에도 10줄.\n- 없는 내용(버튼·메뉴·푸터·저작권·임의설명·영문 부제목·슬로건) 절대 추가 금지.\n- AI가 임의로 만든 영문 텍스트(\"Legend of Darkness\", \"28th Anniversary\" 등) 삽입 즉시 FAIL.\n- placeholder 절대 금지. 마지막 문장 누락 여부 반드시 확인.\n\n---\n\n# [절대 금지]\n- <!DOCTYPE> <html> <head> <body> <style> 태그 생성 금지. (예외: 팝업 기능 있을 때만 <script> 허용)\n- class 없는 <div> 절대 금지. 모든 div는 반드시 class=\"se-div\" 또는 class=\"se-para-div\" 필수.\n- 모든 스타일은 인라인 style=\"\" 만 사용.\n- display:flex · display:grid · gap 금지.\n- ul / ol / li 금지. 목록은 <p> 또는 <br> 사용.\n- box-shadow 금지. background 단축 금지 → background-color 사용.\n- rgba() 절대 금지. 색상은 반드시 6자리 hex(#rrggbb)만 사용.\n- #fff #000 등 3자리 색상 금지 → #ffffff #000000.\n- !important 금지.\n- max-width에 px 단위 금지 → rem 사용.\n- 마크다운 볼드(**텍스트**) 금지 → <p style=\"font-weight:900;\"> 사용.\n- 외부 URL <img> 절대 금지.\n- 이미지 마커 (item1) (item2) 등이 원고에 명시되지 않으면 <img> 태그 생성 절대 금지.\n- AI가 임의로 이미지 플레이스홀더 생성 금지. 원고에 없는 이미지 삽입 즉시 FAIL.\n\n---\n\n# [HTML 구조 — 절대 준수]\n\n<div class=\"se-contents\" style=\"font-size:clamp(0.875rem,1.702vw,1rem);font-family:'Pretendard',sans-serif;line-height:1.8;max-width:52.5rem;width:100%;margin:0 auto;background-color:transparent;display:block;word-break:keep-all;overflow-wrap:break-word;color:${textColor};letter-spacing:-0.05rem;\">\n\n  <!-- 1번 블록: 히어로 이미지 (이미지 있을 때만 생성) -->\n  <div class=\"se-div\" style=\"margin:0;padding:0;line-height:0;font-size:0;display:block;width:100%;\"></div>\n\n  <!-- 2번 블록: 컨텐츠 전체 래퍼 -->\n  <div class=\"se-div\" style=\"background-color:${bgColor};margin:0;padding:0;display:block;width:100%;box-sizing:border-box;\">\n    <!-- 섹션 se-div들이 형제로 수직 적층. 각 섹션에 좌우 패딩: padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px) 적용 -->\n  </div>\n\n</div>\n\n규칙:\n- se-contents 배경은 transparent. 배경색은 2번 블록에만 적용.\n- 1번(이미지)·2번(컨텐츠) 블록만 se-contents 직계 자식으로 존재. 추가 감싸기 금지.\n- 배경색 ${bgColor}는 지정된 값 그대로. 임의 변경 금지.\n\n---\n\n# [컬러 시스템]\n- 60:30:10 법칙: 배경(60%) ${bgColor} / 서피스(30%) ${surfaceColor} / 포인트(10%) ${accentColor}.\n- 카드·컨테이너 구분: 배경색 명도 3~5% 조절한 hex 또는 1px border만 사용.\n- 포인트색 ${accentColor}: 번호아이콘·CTA버튼·핵심키워드에만 한정.\n- 모든 텍스트 요소(p span td th h1~h6 등)에 color 속성 반드시 명시.\n- ${textColor} 기본 텍스트 / ${subColor} 서브 / ${accentColor} 강조 / ${surfaceColor} 카드배경 / ${borderColor} 테두리.\n\n---\n\n# [타이포그래피]\n- 섹션 제목: font-size:clamp(1.25rem,2.5vw,1.375rem); font-weight:900; color:${accentColor}\n- 소제목: font-size:0.8125rem; font-weight:700; text-transform:uppercase; color:${subColor}\n- 본문: font-size:clamp(0.875rem,1.5vw,1rem); font-weight:400; line-height:1.8; color:${textColor}\n- 모든 <p> 태그: margin:0; line-height:1.8;\n- 수치/날짜 강조: font-size:clamp(1.5rem,3vw,2rem); font-weight:900; color:${accentColor}\n- 카드 상단 바: height:0.1875rem; background-color:${accentColor}; border-radius:0.1875rem 0.1875rem 0 0\n\n---\n\n# [간격 처리 규칙 — 단일 기준]\n- 요소 사이 간격: 반드시 <p style=\"height:Npx;margin:0;\"></p> 태그로만 처리.\n  - 작은 간격: height:8px / 중간: height:16px / 큰 간격: height:24px\n- margin 사용 금지. <br> 단독 사용 금지. <p>&nbsp;</p> 금지.\n- 모든 <p> 태그: margin:0; line-height:1.8;\n\n---\n\n# [섹션 구조 — 모든 섹션 동일]\n\n<div class=\"se-div\" style=\"background-color:${surfaceColor};border:1px solid ${borderColor};border-radius:0.875rem;padding:1.75rem clamp(16px,3.472vw,50px);\">\n  <!-- 모든 섹션 좌우 패딩: clamp(16px,3.472vw,50px) — PC 50px, 모바일 16px -->\n  <!-- 섹션 타이틀 -->\n  <div class=\"se-div\" style=\"margin-bottom:1rem;\">\n    <span style=\"display:inline-block;width:1.75rem;height:1.75rem;background-color:${accentColor};border-radius:50%;text-align:center;line-height:1.75rem;font-weight:900;color:#000000;font-size:0.875rem;margin-right:0.625rem;vertical-align:middle;\">N</span>\n    <span style=\"font-size:clamp(1.25rem,2.5vw,1.375rem);font-weight:700;color:${textColor};vertical-align:middle;\">섹션제목</span>\n  </div>\n  <!-- 섹션 내용 -->\n  <div class=\"se-div\" style=\"padding:0.75rem 0;border-top:1px solid ${borderColor};\">\n    <p style=\"color:${textColor};margin:0;line-height:1.8;\">내용</p>\n  </div>\n</div>\n<p style=\"height:24px;margin:0;\"></p>\n\n규칙:\n- **모든 내부 div에 class=\"se-div\" 필수.** class 없는 div 절대 금지.\n- 섹션 사이 간격: <p style=\"height:24px;margin:0;\"></p> 로만 처리.\n- 테이블은 섹션 se-div 안에 직접 배치. **추가 래퍼 div 금지.**\n- 이 구조를 섹션마다 다르게 바꾸면 FAIL.\n\n---\n\n# [이미지 규칙]\n- <img> 필수 style: max-width:100%;height:auto;display:block;margin:0 auto;\n- width · height 고정값 금지. object-fit · object-position 금지.\n- img를 div·span으로 감싸지 말 것. 단독 사용.\n- position:absolute/fixed/relative · float · z-index 금지.\n- 이미지 블록 se-div: style=\"margin:0;padding:0;display:block;line-height:0;font-size:0;\"\n\n---\n\n# [테이블 규칙]\n- 표 데이터는 반드시 <table>. div 대체 절대 금지.\n- 테이블은 섹션 se-div 안에 직접 배치. **별도 래퍼 div 추가 금지.**\n- table: style=\"width:100%;border-collapse:collapse;table-layout:fixed;margin:0;\"\n- th: style=\"padding:0.875rem 1rem;border:1px solid ${borderColor};border-bottom:1px solid ${accentColor};font-weight:700;color:${accentColor};text-align:center;background-color:${surfaceColor};word-break:keep-all;overflow-wrap:break-word;vertical-align:middle;line-height:1.4;box-sizing:border-box;min-width:2.5rem;font-size:inherit;\"\n- td: style=\"padding:0.875rem 1rem;border:1px solid ${borderColor};border-bottom:1px solid ${borderColor};color:${textColor};text-align:center;vertical-align:middle;word-break:keep-all;overflow-wrap:break-word;line-height:1.4;box-sizing:border-box;min-width:2.5rem;font-size:inherit;\"\n- 짝수 행: background-color:${surfaceColor}\n- 모든 th·td에 width% 명시. colspan/rowspan 적극 활용.\n- 이미지 마커 (item1) 있을 때만 이미지 셀 생성. 마커 없으면 이미지 셀 생성 금지.\n- 데이터 없는 빈 행 생성 금지.\n\n---\n\n# [버튼 — 키워드 없으면 생성 금지]\n- [대버튼]: width:100%;padding:1.5rem 0;font-weight:800;border-radius:0.75rem;background-color:${accentColor};color:#000000;\n- [중버튼]: display:inline-block;padding:1rem 3.25rem;font-weight:700;border-radius:2rem;border:2px solid ${accentColor};color:${accentColor};\n- [소버튼]: display:inline-block;padding:0.625rem 1.5rem;font-size:inherit;border-radius:0.5rem;\n\n---\n\n# [탭 시스템]\n- 탭 버튼 텍스트에 \"tab01\" 등 지시어 노출 금지. 원고의 실제 탭 제목만.\n- <a href=\"#tab01\"> ↔ <div class=\"se-div\" id=\"tab01\"> 1:1 매칭 필수.\n- 탭 바 컨테이너: display:block;width:100%;text-align:center;padding:0.5rem 0;\n- 탭 버튼(a 태그): display:inline-block;padding:0.625rem 1.5rem;margin:0.25rem;border-radius:2rem;font-weight:700;text-decoration:none;word-break:keep-all;white-space:nowrap;\n- 활성 탭: background-color:${accentColor};color:${accentTextColor};\n- 비활성 탭: background-color:${surfaceColor};color:${subColor};\n- 탭 버튼은 반드시 면(fill) 방식. underline/border-bottom 방식 절대 금지.\n- 각 탭 섹션 se-div에 id=\"tab01\" 부여. 각 섹션 상단에 탭 바 반복.\n- Tab01. / Tab02. 텍스트는 HTML에 절대 노출 금지.\n\n---\n\n# [팝업 트리거]\n- 원고에 [팝업1] [팝업2] 마커 있으면 해당 위치에 트리거 버튼 삽입.\n- 버튼: <button class=\"popup-trigger\" data-popup=\"popup_N\" style=\"display:inline-block;width:1.375rem;height:1.375rem;line-height:1;border-radius:50%;background-color:${accentColor};color:#ffffff;font-size:0.75rem;font-weight:900;border:none;cursor:pointer;vertical-align:middle;margin:0 0.25rem;text-align:center;\">+</button>\n- <script> 태그: 슬라이드(갤러리)·팝업 기능 있을 때만 허용. 그 외 절대 금지.\n- [툴팁N] 마커 사용 금지. 반드시 [팝업N]으로 대체.\n\n---\n\n# [레이아웃 패턴 — 섹션마다 선택 적용]\nA: 풀와이드 + border-left:0.3125rem solid ${accentColor} + padding space-24\nB: 2단 배치 — <div class=\"se-para-div\"> 안에 <div class=\"se-div\" style=\"display:inline-block;vertical-align:top;width:48%;\"> × 2 + margin-left:4% (⚠️ 비교형/좌우 대칭 콘텐츠는 반드시 <table> 사용)\nC: 원형 번호 타임라인 (circle: 2rem, bg:${accentColor}, inline-block, vertical-align:top)\nD: pill 배지 (border-radius:1.25rem;padding:0.25rem 0.875rem) + 점선 본문\nE: 강조 띠 (background-color 명도 조절 hex, border-radius:1rem, padding space-32)\nF: 이모지 아이콘 리스트 (border-bottom:1px solid ${borderColor}, padding space-16)\nG: 카드 스택 (border-radius:0.875rem, bg:${surfaceColor}, border:1px solid ${borderColor})\nH: 교차 배경 (홀수·짝수 행 명도 미세 조절)\nI: 오버레이 배지 (position:relative, pill 제목 position:absolute;top:-0.875rem)\nJ: 3열 배치 — <div class=\"se-div\" style=\"display:inline-block;vertical-align:top;width:30%;margin:0 1.5% 1rem;\"> × 3\n\n---\n\n# [에디터 파서 우회 — 절대 준수]\n- class 없는 <div> 절대 금지. 에디터가 삭제함.\n- 컨테이너·그룹 필요 시: <div class=\"se-div\"> 또는 <div class=\"se-para-div\"> 만 허용.\n- 가로 정렬: <div class=\"se-para-div\"> 부모 + 내부 <div class=\"se-div\" style=\"display:inline-block;vertical-align:middle;\"> 조합.\n- display:flex · display:grid 금지. <table>은 데이터·비교 레이아웃에 허용 (레이아웃 전용 남용 금지).\n\n---\n\n# [섹션 분리 — 계층 구조]\n- 논리적으로 같은 주제 → 하나의 카드(se-div) 안에 묶기.\n- 다른 성격(기간 vs 참여방법 vs 보상목록)일 때만 별도 카드로 분리.\n- 소제목(■·▶·번호)이 하나의 주제 아래 있으면 카드 안에서 소제목으로 처리. 별도 카드 금지.\n- 계층: se-contents > 대카드(se-div) > 소섹션(내부 se-div) — 과도한 분리 FAIL.\n- 모든 섹션은 반드시 형제(Sibling)로 수직 적층. 중첩(Nesting) 금지.\n\n---\n\n# [메타 클리닝]\n- tab01 tab02 [대버튼] [중버튼] [소버튼] [팝업N] 등 지시어는 최종 HTML에서 삭제.\n";
+        const MASTER_GUIDELINES_INLINE = "[System Prompt: High-End HTML Render Engine v4.0]\n\n# Role\n너는 세계 최고 수준의 게임 프로모션 디자이너다. 단순·밀도없는 레이아웃은 FAIL.\n\n---\n\n# [제0원칙 — 원고 텍스트 절대 우선]\n- 원고의 모든 문장·단어·숫자·특수문자를 단 한 글자도 바꾸지 말고 그대로 출력.\n- 요약·압축·윤문·재해석 절대 금지. 원고에 10줄이면 HTML에도 10줄.\n- 없는 내용(버튼·메뉴·푸터·저작권·임의설명·영문 부제목·슬로건) 절대 추가 금지.\n- AI가 임의로 만든 영문 텍스트(\"Legend of Darkness\", \"28th Anniversary\" 등) 삽입 즉시 FAIL.\n- placeholder 절대 금지. 마지막 문장 누락 여부 반드시 확인.\n\n---\n\n# [절대 금지]\n- <!DOCTYPE> <html> <head> <body> <style> 태그 생성 금지. (예외: 팝업 기능 있을 때만 <script> 허용)\n- class 없는 <div> 절대 금지. 모든 div는 반드시 class=\"se-div\" 또는 class=\"se-para-div\" 필수.\n- 모든 스타일은 인라인 style=\"\" 만 사용.\n- display:flex · display:grid · gap 금지.\n- ul / ol / li 금지. 목록은 <p> 또는 <br> 사용.\n- box-shadow 금지. background 단축 금지 → background-color 사용.\n- rgba() 절대 금지. 색상은 반드시 6자리 hex(#rrggbb)만 사용.\n- #fff #000 등 3자리 색상 금지 → #ffffff #000000.\n- !important 금지.\n- max-width에 px 단위 금지 → rem 사용.\n- 마크다운 볼드(**텍스트**) 금지 → <p style=\"font-weight:900;\"> 사용.\n- 외부 URL <img> 절대 금지.\n- 이미지 마커 (item1) (item2) 등이 원고에 명시되지 않으면 <img> 태그 생성 절대 금지.\n- AI가 임의로 이미지 플레이스홀더 생성 금지. 원고에 없는 이미지 삽입 즉시 FAIL.\n\n---\n\n# [HTML 구조 — 절대 준수]\n\n<div class=\"se-contents\" style=\"font-size:clamp(0.875rem,1.702vw,1rem);font-family:'Pretendard',sans-serif;line-height:1.8;max-width:52.5rem;width:100%;margin:0 auto;background-color:transparent;display:block;word-break:keep-all;overflow-wrap:break-word;color:${textColor};letter-spacing:-0.05rem;\">\n\n  <!-- 1번 블록: 히어로 이미지 (이미지 있을 때만 생성) -->\n  <div class=\"se-div\" style=\"margin:0;padding:0;line-height:0;font-size:0;display:block;width:100%;\"></div>\n\n  <!-- 2번 블록: 컨텐츠 전체 래퍼 -->\n  <div class=\"se-div\" style=\"background-color:${bgColor};margin:0;padding:0;display:block;width:100%;box-sizing:border-box;\">\n    <!-- 섹션 se-div들이 형제로 수직 적층. 각 섹션에 좌우 패딩: padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px) 적용 -->\n  </div>\n\n</div>\n\n규칙:\n- se-contents 배경은 transparent. 배경색은 2번 블록에만 적용.\n- 1번(이미지)·2번(컨텐츠) 블록만 se-contents 직계 자식으로 존재. 추가 감싸기 금지.\n- 배경색 ${bgColor}는 지정된 값 그대로. 임의 변경 금지.\n\n---\n\n# [컬러 시스템]\n- 60:30:10 법칙: 배경(60%) ${bgColor} / 서피스(30%) ${surfaceColor} / 포인트(10%) ${accentColor}.\n- 카드·컨테이너 구분: 배경색 명도 3~5% 조절한 hex 또는 1px border만 사용.\n- 포인트색 ${accentColor}: 번호아이콘·CTA버튼·핵심키워드에만 한정.\n- 모든 텍스트 요소(p span td th h1~h6 등)에 color 속성 반드시 명시.\n- ${textColor} 기본 텍스트 / ${subColor} 서브 / ${accentColor} 강조 / ${surfaceColor} 카드배경 / ${borderColor} 테두리.\n\n---\n\n# [타이포그래피]\n- 섹션 제목: font-size:clamp(1.25rem,2.5vw,1.375rem); font-weight:900; color:${accentColor}\n- 소제목: font-size:0.8125rem; font-weight:700; text-transform:uppercase; color:${subColor}\n- 본문: font-size:clamp(0.875rem,1.5vw,1rem); font-weight:400; line-height:1.8; color:${textColor}\n- 모든 <p> 태그: margin:0; line-height:1.8;\n- 수치/날짜 강조: font-size:clamp(1.5rem,3vw,2rem); font-weight:900; color:${accentColor}\n- 카드 상단 바: height:0.1875rem; background-color:${accentColor}; border-radius:0.1875rem 0.1875rem 0 0\n\n---\n\n# [간격 처리 규칙 — 단일 기준]\n- 요소 사이 간격: 반드시 <p style=\"height:Npx;margin:0;\"></p> 태그로만 처리.\n  - 작은 간격: height:8px / 중간: height:16px / 큰 간격: height:24px\n- margin 사용 금지. <br> 단독 사용 금지. <p>&nbsp;</p> 금지.\n- 모든 <p> 태그: margin:0; line-height:1.8;\n\n---\n\n# [섹션 구조 — 모든 섹션 동일]\n\n<div class=\"se-div\" style=\"background-color:${surfaceColor};border:1px solid ${borderColor};border-radius:0.875rem;padding:1.75rem clamp(16px,3.472vw,40px);\">\n  <!-- 모든 섹션 좌우 패딩: clamp(16px,3.472vw,40px) — PC 50px, 모바일 16px -->\n  <!-- 섹션 타이틀 -->\n  <div class=\"se-div\" style=\"margin-bottom:1rem;\">\n    <span style=\"display:inline-block;width:1.75rem;height:1.75rem;background-color:${accentColor};border-radius:50%;text-align:center;line-height:1.75rem;font-weight:900;color:#000000;font-size:0.875rem;margin-right:0.625rem;vertical-align:middle;\">N</span>\n    <span style=\"font-size:clamp(1.25rem,2.5vw,1.375rem);font-weight:700;color:${textColor};vertical-align:middle;\">섹션제목</span>\n  </div>\n  <!-- 섹션 내용 -->\n  <div class=\"se-div\" style=\"padding:0.75rem 0;border-top:1px solid ${borderColor};\">\n    <p style=\"color:${textColor};margin:0;line-height:1.8;\">내용</p>\n  </div>\n</div>\n<p style=\"height:24px;margin:0;\"></p>\n\n규칙:\n- **모든 내부 div에 class=\"se-div\" 필수.** class 없는 div 절대 금지.\n- 섹션 사이 간격: <p style=\"height:24px;margin:0;\"></p> 로만 처리.\n- 테이블은 섹션 se-div 안에 직접 배치. **추가 래퍼 div 금지.**\n- 이 구조를 섹션마다 다르게 바꾸면 FAIL.\n- 모든 섹션 카드의 border/border-radius/padding/background-color가 동일해야 한다. 하나라도 다르면 FAIL.\n\n---\n\n# [이미지 규칙]\n- <img> 필수 style: max-width:100%;height:auto;display:block;margin:0 auto;\n- width · height 고정값 금지. object-fit · object-position 금지.\n- img를 div·span으로 감싸지 말 것. 단독 사용.\n- position:absolute/fixed/relative · float · z-index 금지.\n- 이미지 블록 se-div: style=\"margin:0;padding:0;display:block;line-height:0;font-size:0;\"\n\n---\n\n# [테이블 규칙]\n- 표 데이터는 반드시 <table>. div 대체 절대 금지.\n- 테이블은 섹션 se-div 안에 직접 배치. **별도 래퍼 div 추가 금지.**\n- table: style=\"width:100%;border-collapse:collapse;table-layout:fixed;margin:0;\"\n- thead/th(타이틀행): style=\"padding:0.875rem 1rem;border:1px solid ${borderColor};border-bottom:2px solid ${accentColor};font-weight:700;color:${accentColor};text-align:center;background-color:${surfaceColor};word-break:keep-all;vertical-align:middle;line-height:1.4;box-sizing:border-box;min-width:2.5rem;font-size:inherit;\"\n- tbody/td(내용행): style=\"padding:0.875rem 1rem;border:1px solid ${borderColor};color:${textColor};text-align:center;vertical-align:middle;word-break:keep-all;line-height:1.4;box-sizing:border-box;min-width:2.5rem;font-size:inherit;background-color:transparent;\"\n- ⚠️ 같은 페이지 내 모든 테이블이 동일한 border 색상·두께·스타일 사용 필수. 불일치 시 FAIL.\n- 짝수 행 배경색 구분 금지. tbody td는 모두 background-color:transparent 통일.\n- 모든 th·td에 width% 명시. colspan/rowspan 적극 활용.\n- 이미지 마커 (item1) 있을 때만 이미지 셀 생성. 마커 없으면 이미지 셀 생성 금지.\n- 데이터 없는 빈 행 생성 금지.\n- 테이블 위아래 간격 필수: 테이블 앞뒤에 반드시 <p style=\"height:8px;margin:0;\"></p> 삽입. 텍스트와 테이블이 바로 붙으면 안 됨.\n\n---\n\n# [버튼 — 키워드 없으면 생성 금지]\n- [대버튼]: 래퍼 div 좌우 패딩 필수 padding:0 clamp(16px,3.472vw,40px). 버튼: width:100%;padding:1.5rem 0;font-weight:800;border-radius:0.75rem;background-color:${accentColor};color:#000000;\n- [중버튼]: display:inline-block;padding:1rem 3.25rem;font-weight:700;border-radius:2rem;border:2px solid ${accentColor};color:${accentColor};\n- [소버튼]: display:inline-block;padding:0.625rem 1.5rem;font-size:inherit;border-radius:0.5rem;\n\n---\n\n# [탭 시스템]\n- 탭 버튼 텍스트에 \"tab01\" 등 지시어 노출 금지. 원고의 실제 탭 제목만.\n- <a href=\"#tab01\"> ↔ <div class=\"se-div\" id=\"tab01\"> 1:1 매칭 필수.\n- 탭 바 컨테이너: display:block;width:100%;text-align:center;padding:0.5rem 0;\n- 탭 버튼(a 태그): display:inline-block;padding:0.625rem 1.5rem;margin:0.25rem;border-radius:2rem;font-weight:700;text-decoration:none;word-break:keep-all;white-space:nowrap;\n- 활성 탭: background-color:${accentColor};color:${accentTextColor};\n- 비활성 탭: background-color:${surfaceColor};color:${subColor};\n- 탭 버튼은 반드시 면(fill) 방식. underline/border-bottom 방식 절대 금지.\n- 각 탭 섹션 se-div에 id=\"tab01\" 부여. 각 섹션 상단에 탭 바 반복.\n- Tab01. / Tab02. 텍스트는 HTML에 절대 노출 금지.\n\n---\n\n# [팝업 트리거]\n- 원고에 [팝업1] [팝업2] 마커 있으면 해당 위치에 트리거 버튼 삽입.\n- 버튼: <button class=\"popup-trigger\" data-popup=\"popup_N\" style=\"display:inline-block;width:1.375rem;height:1.375rem;line-height:1;border-radius:50%;background-color:${accentColor};color:#ffffff;font-size:0.75rem;font-weight:900;border:none;cursor:pointer;vertical-align:middle;margin:0 0.25rem;text-align:center;\">+</button>\n- <script> 태그: 슬라이드(갤러리)·팝업 기능 있을 때만 허용. 그 외 절대 금지.\n- [툴팁N] 마커 사용 금지. 반드시 [팝업N]으로 대체.\n- **팝업 콘텐츠는 본문과 동일한 테마·폰트·색상·간격 사용.** 최소 폰트 13px 필수. 본문에 그대로 붙여넣어도 이질감 없어야 함.\n\n---\n\n# [레이아웃 패턴 — 섹션마다 선택 적용]\nA: 풀와이드 + border-left:0.3125rem solid ${accentColor} + padding space-24\nB: 2단 배치 — <div class=\"se-para-div\"> 안에 <div class=\"se-div\" style=\"display:inline-block;vertical-align:top;width:48%;\"> × 2 + margin-left:4% (⚠️ 비교형/좌우 대칭 콘텐츠는 반드시 <table> 사용)\nC: 원형 번호 타임라인 (circle: 2rem, bg:${accentColor}, inline-block, vertical-align:top)\nD: pill 배지 (border-radius:1.25rem;padding:0.25rem 0.875rem) + 점선 본문\nE: 강조 띠 (background-color 명도 조절 hex, border-radius:1rem, padding space-32)\nF: 이모지 아이콘 리스트 (border-bottom:1px solid ${borderColor}, padding space-16)\nG: 카드 스택 (border-radius:0.875rem, bg:${surfaceColor}, border:1px solid ${borderColor})\nH: 교차 배경 (홀수·짝수 행 명도 미세 조절)\nI: 오버레이 배지 (position:relative, pill 제목 position:absolute;top:-0.875rem)\nJ: 3열 배치 — <div class=\"se-div\" style=\"display:inline-block;vertical-align:top;width:30%;margin:0 1.5% 1rem;\"> × 3\n\n---\n\n# [에디터 파서 우회 — 절대 준수]\n- class 없는 <div> 절대 금지. 에디터가 삭제함.\n- 컨테이너·그룹 필요 시: <div class=\"se-div\"> 또는 <div class=\"se-para-div\"> 만 허용.\n- 가로 정렬: <div class=\"se-para-div\"> 부모 + 내부 <div class=\"se-div\" style=\"display:inline-block;vertical-align:middle;\"> 조합.\n- display:flex · display:grid 금지. <table>은 데이터·비교 레이아웃에 허용 (레이아웃 전용 남용 금지).\n\n---\n\n# [섹션 분리 — 계층 구조]\n- 논리적으로 같은 주제 → 하나의 카드(se-div) 안에 묶기.\n- 다른 성격(기간 vs 참여방법 vs 보상목록)일 때만 별도 카드로 분리.\n- 소제목(■·▶·번호)이 하나의 주제 아래 있으면 카드 안에서 소제목으로 처리. 별도 카드 금지.\n- 계층: se-contents > 대카드(se-div) > 소섹션(내부 se-div) — 과도한 분리 FAIL.\n- 모든 섹션은 반드시 형제(Sibling)로 수직 적층. 중첩(Nesting) 금지.\n\n---\n\n# [메타 클리닝]\n- tab01 tab02 [대버튼] [중버튼] [소버튼] [팝업N] 등 지시어는 최종 HTML에서 삭제.\n";
 
         async function loadMasterGuideline() {
             masterGuidelineText = MASTER_GUIDELINES_INLINE;
@@ -602,7 +674,8 @@
                             y: (rect.top - sheetRect.top) * targetScale,
                             w: rect.width * targetScale,
                             h: rect.height * targetScale,
-                            targetY: hash && anchorTargetMap[hash] !== undefined ? anchorTargetMap[hash] : null
+                            targetY: hash && anchorTargetMap[hash] !== undefined ? anchorTargetMap[hash] : null,
+                            isPopupTrigger: a.classList.contains('popup-trigger')
                         };
                     }).filter(l => l.w > 0 && l.h > 0);
 
@@ -788,6 +861,7 @@
 
             const bgColor  = getById('bgPicker').value   || '#ffffff';
             const acColor  = (getById('accentPicker')?.value || '#7c3aed');
+            const acTextColor = isDarkColor(acColor) ? '#ffffff' : '#000000';
             const mw       = parseInt(getById('pageWidthInput').value) || 840;
 
             const zip = new JSZip();
@@ -819,18 +893,35 @@
                     _popupWrap.style.cssText = `position:fixed;top:0;left:-${caCloneW + 300}px;width:${caCloneW}px;overflow:hidden;pointer-events:none;z-index:-9999;`;
                     const caClone = childArea.cloneNode(true);
                     caClone.style.width = caCloneW + 'px';
-                    caClone.style.background = '#ffffff';
+                    caClone.style.background = bgColor;
                     // AI가 생성한 닫기 버튼 제거 (슬라이스 이미지에 × 중복 노출 방지)
                     caClone.querySelectorAll('button, [role="button"], a').forEach(el => {
                         const txt = (el.textContent || '').trim();
                         if (['×', '✕', '✗', 'X', '닫기', 'Close', 'CLOSE'].includes(txt)) el.remove();
+                    });
+                    // 테이블 기본 속성 보장 — border 색은 AI 생성 인라인 스타일 그대로 유지
+                    caClone.querySelectorAll('table').forEach(tbl => {
+                        tbl.style.borderCollapse = 'collapse';
+                        if (!tbl.style.width) tbl.style.width = '100%';
+                        if (!tbl.style.tableLayout) tbl.style.tableLayout = 'fixed';
+                        tbl.querySelectorAll('td, th').forEach(cell => {
+                            if (!cell.style.padding) cell.style.padding = '0.875rem 1rem';
+                            cell.style.boxSizing = 'border-box';
+                            cell.style.verticalAlign = 'middle';
+                            cell.style.lineHeight = '1.4';
+                        });
+                    });
+                    // 폰트 사이즈 최소 13px 보장
+                    caClone.querySelectorAll('*').forEach(el => {
+                        const fs = parseFloat(window.getComputedStyle(el).fontSize);
+                        if (fs && fs < 13) el.style.fontSize = '13px';
                     });
                     _popupWrap.appendChild(caClone);
                     document.body.appendChild(_popupWrap);
                     await convertImagesToBase64(caClone);
                     try {
                         const popupCanvas = await htmlToImage.toCanvas(caClone, {
-                            pixelRatio: 2, backgroundColor: '#ffffff',
+                            pixelRatio: 2, backgroundColor: bgColor,
                             skipFonts: true, useCORS: true
                         });
                         const fname = panel.id + '.png';
@@ -866,6 +957,7 @@
                 // 링크 오버레이
                 let anchorsHtml = '';
                 slicerLinks.forEach(link => {
+                    if (link.isPopupTrigger) return; // popup-trigger는 별도 처리
                     const cy = link.y + link.h / 2;
                     if (cy >= startY && cy <= endY) {
                         const relY = link.y - startY;
@@ -873,26 +965,27 @@
                         const expandPx = 4;
                         const adjY = Math.max(0, relY - expandPx);
                         const adjH = link.h + expandPx * 2;
-                        anchorsHtml += `\n        <a href="${link.url}" target="_blank" style="position:absolute;display:block;z-index:10;left:${(link.x/tempCanvas.width*100).toFixed(3)}%;top:${(adjY/sliceH*100).toFixed(3)}%;width:${(link.w/tempCanvas.width*100).toFixed(3)}%;height:${(adjH/sliceH*100).toFixed(3)}%;background-color:transparent;text-decoration:none;border:none;outline:none;cursor:pointer;"></a>`;
+                        // #hash 앵커 링크는 target="_blank" 제거 (탭 이동·스크롤 동작 보장)
+                        const _tgt = link.url.startsWith('#') ? '' : ' target="_blank"';
+                        anchorsHtml += `\n        <a href="${link.url}"${_tgt} style="position:absolute;display:block;z-index:10;left:${(link.x/tempCanvas.width*100).toFixed(3)}%;top:${(adjY/sliceH*100).toFixed(3)}%;width:${(link.w/tempCanvas.width*100).toFixed(3)}%;height:${(adjH/sliceH*100).toFixed(3)}%;background-color:transparent;text-decoration:none;border:none;outline:none;cursor:pointer;"></a>`;
                     }
                 });
 
-                // ── 팝업 버튼: 이미지에 자연 렌더링 + 이미지맵 <area>로 클릭 처리 ──
-                // popup-trigger 버튼은 filter에서 제외하지 않으므로 이미지에 그대로 박제됨
-                // 이미지맵으로 해당 위치를 클릭 가능하게 처리 (반응형 스케일 JS 포함)
-                const mapName = `slcmap${i + 1}`;
-                let mapAreasHtml = '';
+                // ── 팝업 버튼: CDN 기준 <a href="javascript:void(...)"> 오버레이로 클릭 처리 ──
+                // popup-trigger 버튼은 이미지에 그대로 박제됨
+                // 에디터 호환을 위해 이미지맵 대신 <a href="javascript:..."> 오버레이 사용
                 slicerPopups.forEach(popup => {
                     const pcy = popup.y + popup.h / 2;
                     if (pcy < startY || pcy > endY) return;
                     const imgPath = popupImagePaths[popup.id];
 
                     const relY = popup.y - startY;
-                    const bx   = popup.x + popup.w / 2;
-                    const by   = relY    + popup.h / 2;
-                    const r    = Math.min(popup.w, popup.h) / 2 + 4; // 클릭 여유 +4px
+                    const expandPx = 4;
+                    const adjX = Math.max(0, popup.x - expandPx);
+                    const adjY = Math.max(0, relY - expandPx);
+                    const adjW = popup.w + expandPx * 2;
+                    const adjH = popup.h + expandPx * 2;
 
-                    const ax = Math.round(bx), ay = Math.round(by), ar = Math.round(r);
                     const layerId = '__popup_' + popup.id + '__';
                     let onclickCode = '';
 
@@ -908,10 +1001,10 @@
                             `var ex=document.getElementById('${layerId}');if(ex){ex.remove();return;}`,
                             `var d=document.createElement('div');d.id='${layerId}';`,
                             _slicerOverlayJs,
-                            `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:740px;margin:0 auto;';`,
-                            `var img=document.createElement('img');img.src='${imgPath}';img.style='display:block;width:100%;height:auto;border-radius:0.75rem;';`,
-                            `var close=document.createElement('button');close.innerHTML='✕';`,
-                            `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${acColor};color:#ffffff;border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;';`,
+                            `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:${mw}px;margin:0 auto;';`,
+                            `var img=document.createElement('img');img.src='${imgPath}';img.style='display:block;width:100%;height:auto;';`,
+                            `var close=document.createElement('button');close.innerHTML='\\u2715';`,
+                            `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${acColor};color:${acTextColor};border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';`,
                             `close.onclick=function(e){e.stopPropagation();d.remove();};`,
                             `wrap.appendChild(img);wrap.appendChild(close);d.appendChild(wrap);`,
                             `d.addEventListener('touchstart',function(e){if(e.target===d)d.remove();},{passive:true});`,
@@ -934,25 +1027,24 @@
                             `var ex=document.getElementById('${layerId}');if(ex){ex.remove();return;}`,
                             `var d=document.createElement('div');d.id='${layerId}';`,
                             _slicerOverlayJs,
-                            `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:740px;margin:0 auto;';`,
+                            `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:${mw}px;margin:0 auto;';`,
                             `var box=document.createElement('div');`,
-                            `box.style='background:#ffffff;border-radius:0.75rem;overflow-y:auto;padding:1.5rem;max-height:80vh;font-family:Pretendard,sans-serif;line-height:1.8;box-sizing:border-box;-webkit-overflow-scrolling:touch;color:#1e293b;box-shadow:0 4px 32px #0000002e;';`,
+                            `box.style='background-color:${bgColor};overflow-y:auto;max-height:80vh;box-sizing:border-box;-webkit-overflow-scrolling:touch;font-family:Pretendard,sans-serif;font-size:13px;line-height:1.8;';`,
                             `box.innerHTML='${escaped}';`,
-                            `var close=document.createElement('button');close.innerHTML='✕';`,
-                            `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${acColor};color:#ffffff;border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;';`,
+                            `var close=document.createElement('button');close.innerHTML='\\u2715';`,
+                            `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${acColor};color:${acTextColor};border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';`,
                             `close.onclick=function(e){e.stopPropagation();d.remove();};`,
                             `wrap.appendChild(box);wrap.appendChild(close);d.appendChild(wrap);`,
                             `d.addEventListener('touchstart',function(e){if(e.target===d)d.remove();},{passive:true});`,
                             `d.onclick=function(e){if(e.target===d)d.remove();};document.body.appendChild(d);`
                         ].join('');
                     }
-                    mapAreasHtml += `\n        <area shape="circle" coords="${ax},${ay},${ar}" data-orig="${ax},${ay},${ar}" href="javascript:void(0)" onclick="(function(event){event.preventDefault();event.stopPropagation();${onclickCode}})(event);" alt="팝업 열기" title="팝업 열기">`;
+                    // CDN 기준: <a href="javascript:void(...)"> — 에디터가 onclick을 strip해도 href는 보존
+                    const hrefCode = `javascript:void((function(){${onclickCode}})())`;
+                    anchorsHtml += `\n        <a href="${hrefCode}" style="position:absolute;display:block;z-index:11;left:${(adjX/tempCanvas.width*100).toFixed(3)}%;top:${(adjY/sliceH*100).toFixed(3)}%;width:${(adjW/tempCanvas.width*100).toFixed(3)}%;height:${(adjH/sliceH*100).toFixed(3)}%;background-color:transparent;text-decoration:none;border:none;outline:none;cursor:pointer;" title="팝업 열기"></a>`;
                 });
 
-                const useMapAttr = mapAreasHtml ? ` usemap="#${mapName}"` : '';
-                const mapTag     = mapAreasHtml ? `\n        <map name="${mapName}">${mapAreasHtml}\n        </map>` : '';
-
-                htmlResult += `\n    <div style="position:relative;width:100%;line-height:0;font-size:0;margin:0;padding:0;">\n        <img src="${baseUrl}${fileName}" alt="slice_${i+1}" style="width:100%;display:block;margin:0;padding:0;"${useMapAttr}>${anchorsHtml}${mapTag}\n    </div>`;
+                htmlResult += `\n    <div style="position:relative;width:100%;line-height:0;font-size:0;margin:0;padding:0;">\n        <img src="${baseUrl}${fileName}" alt="slice_${i+1}" style="width:100%;display:block;margin:0;padding:0;">${anchorsHtml}\n    </div>`;
                 startY = endY;
             }
             htmlResult += `\n</div>`;
@@ -972,31 +1064,8 @@
                 htmlResult += '\n' + scrollJs;
             }
 
-            // ── 4단계: 반응형 이미지맵 스케일 JS ──
-            // 뷰포트 크기 변화 시 area coords를 이미지 표시 크기에 맞게 재계산
-            if (slicerPopups.length > 0) {
-                const mapScaleJs = '<script>(function(){' +
-                    'function _rm(img){' +
-                    '  var mn=(img.getAttribute("usemap")||"").replace(/^#/,"");' +
-                    '  if(!mn)return;' +
-                    '  var map=document.querySelector("map[name=\\""+mn+"\\"]");' +
-                    '  if(!map||!img.naturalWidth)return;' +
-                    '  var sx=img.offsetWidth/img.naturalWidth;' +
-                    '  map.querySelectorAll("area[data-orig]").forEach(function(a){' +
-                    '    var c=a.getAttribute("data-orig").split(",").map(Number);' +
-                    '    a.setAttribute("coords",[Math.round(c[0]*sx),Math.round(c[1]*sx),Math.round(c[2]*sx)].join(","));' +
-                    '  });' +
-                    '}' +
-                    'function _ra(){document.querySelectorAll("img[usemap]").forEach(function(img){' +
-                    '  if(img.complete&&img.naturalWidth>0){_rm(img);}' +
-                    '  else{img.addEventListener("load",function(){_rm(img);},{once:true});}' +
-                    '});}' +
-                    'window.addEventListener("load",_ra);' +
-                    'window.addEventListener("resize",function(){setTimeout(_ra,50);});' +
-                    'document.addEventListener("DOMContentLoaded",_ra);' +
-                    '})();<\/script>';
-                htmlResult += '\n' + mapScaleJs;
-            }
+            // (이미지맵 제거됨 — CDN 기준 <a href="javascript:..."> 오버레이 방식은
+            //  % 기반 position:absolute이므로 반응형 스케일 JS 불필요)
 
             // ── 5단계: ZIP 저장 ──
             // CDN URL 입력 시 절대경로 버전 추가 생성 (CDN URL + hashFolder/ 포함)
@@ -1131,9 +1200,10 @@
                 // 이벤트 위임 script 추가 (se-popup-content를 데이터 소스로 사용)
                 if (childPanels.length > 0) {
                     const _slAc = (getById('accentPicker')?.value || '#7c3aed');
+                    const _slAcText = isDarkColor(_slAc) ? '#ffffff' : '#000000';
                     _localHtml += `\n<script>
 (function(){
-var ac='${_slAc}';
+var ac='${_slAc}';var acText='${_slAcText}';
 document.addEventListener('click',function(e){
 var btn=e.target.closest?e.target.closest('.popup-trigger[data-popup]'):null;
 if(!btn){var el=e.target;while(el&&el!==document){if(el.classList&&el.classList.contains('popup-trigger')&&el.getAttribute('data-popup')){btn=el;break;}el=el.parentNode;}}
@@ -1151,13 +1221,13 @@ var _br=btn.getBoundingClientRect();
 var d=document.createElement('div');d.id=lid;
 d.style='position:fixed;top:0;left:'+Math.round(_cr.left)+'px;width:'+Math.round(_cr.width)+'px;height:100%;background:#000000B8;z-index:99999;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1rem;box-sizing:border-box;';
 var wrap=document.createElement('div');
-wrap.style='position:relative;width:100%;max-width:740px;margin:0 auto;';
+wrap.style='position:relative;width:100%;margin:0 auto;';
 var box=document.createElement('div');
-box.style='background:#ffffff;border-radius:0.75rem;overflow-y:auto;padding:1.5rem;max-height:80vh;font-family:Pretendard,sans-serif;line-height:1.8;box-sizing:border-box;-webkit-overflow-scrolling:touch;color:#1e293b;box-shadow:0 4px 32px #0000002e;';
+var _bg=(document.querySelector('.se-contents .se-div[style*=background]')||{}).style;box.style='background-color:'+(_bg&&_bg.backgroundColor||'#ffffff')+';overflow-y:auto;max-height:80vh;box-sizing:border-box;-webkit-overflow-scrolling:touch;font-family:Pretendard,sans-serif;font-size:13px;line-height:1.8;';
 box.innerHTML=src.innerHTML;
 wrap.appendChild(box);
 var close=document.createElement('button');close.innerHTML='\\u2715';
-close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:'+ac+';color:#ffffff;border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';
+close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:'+ac+';color:'+acText+';border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';
 close.onclick=function(ev){ev.stopPropagation();d.remove();};
 wrap.appendChild(close);d.appendChild(wrap);
 d.addEventListener('touchstart',function(ev){if(ev.target===d)d.remove();},{passive:true});
@@ -1653,6 +1723,21 @@ else{e.preventDefault();window.open(h,'_blank');}
                         else img.remove();
                     }
                 });
+                // 테이블 기본 속성 보장 — border 색은 AI 생성 인라인 스타일 그대로 유지
+                d.querySelectorAll('table').forEach(tbl => {
+                    tbl.style.borderCollapse = 'collapse';
+                    if (!tbl.style.width) tbl.style.width = '100%';
+                    if (!tbl.style.tableLayout) tbl.style.tableLayout = 'fixed';
+                    tbl.querySelectorAll('td, th').forEach(cell => {
+                        if (!cell.style.padding) cell.style.padding = '0.875rem 1rem';
+                        cell.style.boxSizing = 'border-box';
+                        cell.style.verticalAlign = 'middle';
+                        cell.style.lineHeight = '1.4';
+                        cell.style.wordBreak = 'keep-all';
+                        const fs = parseFloat(cell.style.fontSize);
+                        if (!cell.style.fontSize || (fs && fs < 13)) cell.style.fontSize = 'clamp(13px,1.5vw,15px)';
+                    });
+                });
                 // popup-trigger 버튼 텍스트 ? → + 통일
                 d.querySelectorAll('.popup-trigger[data-popup]').forEach(btn => {
                     const t = btn.textContent.trim();
@@ -1817,9 +1902,10 @@ else{e.preventDefault();window.open(h,'_blank');}
             // 이벤트 위임 script: se-popup-content div를 데이터 소스로 팝업 표시
             if (childPanels.length > 0) {
                 const _ac = (getById('accentPicker')?.value || '#7c3aed');
+                const _acTxt = isDarkColor(_ac) ? '#ffffff' : '#000000';
                 localHtml += `\n<script>
 (function(){
-var ac='${_ac}';
+var ac='${_ac}';var acText='${_acTxt}';
 document.addEventListener('click',function(e){
 var btn=e.target.closest?e.target.closest('.popup-trigger[data-popup]'):null;
 if(!btn){var el=e.target;while(el&&el!==document){if(el.classList&&el.classList.contains('popup-trigger')&&el.getAttribute('data-popup')){btn=el;break;}el=el.parentNode;}}
@@ -1837,13 +1923,13 @@ var _br=btn.getBoundingClientRect();
 var d=document.createElement('div');d.id=lid;
 d.style='position:fixed;top:0;left:'+Math.round(_cr.left)+'px;width:'+Math.round(_cr.width)+'px;height:100%;background:#000000B8;z-index:99999;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1rem;box-sizing:border-box;';
 var wrap=document.createElement('div');
-wrap.style='position:relative;width:100%;max-width:740px;margin:0 auto;';
+wrap.style='position:relative;width:100%;margin:0 auto;';
 var box=document.createElement('div');
-box.style='background:#ffffff;border-radius:0.75rem;overflow-y:auto;padding:1.5rem;max-height:80vh;font-family:Pretendard,sans-serif;line-height:1.8;box-sizing:border-box;-webkit-overflow-scrolling:touch;color:#1e293b;box-shadow:0 4px 32px #0000002e;';
+var _bg=(document.querySelector('.se-contents .se-div[style*=background]')||{}).style;box.style='background-color:'+(_bg&&_bg.backgroundColor||'#ffffff')+';overflow-y:auto;max-height:80vh;box-sizing:border-box;-webkit-overflow-scrolling:touch;font-family:Pretendard,sans-serif;font-size:13px;line-height:1.8;';
 box.innerHTML=src.innerHTML;
 wrap.appendChild(box);
 var close=document.createElement('button');close.innerHTML='\\u2715';
-close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:'+ac+';color:#ffffff;border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';
+close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:'+ac+';color:'+acText+';border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';
 close.onclick=function(ev){ev.stopPropagation();d.remove();};
 wrap.appendChild(close);d.appendChild(wrap);
 d.addEventListener('touchstart',function(ev){if(ev.target===d)d.remove();},{passive:true});
@@ -3098,8 +3184,15 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
             area.style.backgroundColor = color;
             sheet.style.backgroundColor = color;
 
-            const wrappers = area.querySelectorAll('.se-contents, .se-div');
-            wrappers.forEach(w => w.style.backgroundColor = color);
+            // se-contents(투명) + 콘텐츠 전체 래퍼(2번 블록)만 배경 변경
+            // 섹션 카드(surfaceColor)는 건드리지 않음
+            const seContentsEl = area.querySelector('.se-contents');
+            if (seContentsEl) {
+                seContentsEl.style.backgroundColor = 'transparent';
+                // 2번 블록 = se-contents 직계 자식 중 배경이 있는 래퍼
+                const contentWrapper = seContentsEl.querySelector(':scope > .se-div:last-child');
+                if (contentWrapper) contentWrapper.style.backgroundColor = color;
+            }
 
             const finalTextColor = isDarkColor(color) ? '#ffffff' : '#1e293b';
             area.style.color = finalTextColor;
@@ -3111,6 +3204,9 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
             if (!noColorAdjust) {
                 const textNodes = area.querySelectorAll('*');
                 textNodes.forEach(node => {
+                    // 버튼·탭 링크·popup-trigger 안의 텍스트는 건드리지 않음 (accent 색 유지)
+                    if (node.closest('a[href], button, .popup-trigger, [class*="tab"]')) return;
+                    if (node.tagName === 'A' || node.tagName === 'BUTTON') return;
                     if (node.style.color) {
                         const c = node.style.color.replace(/\s/g, '').toLowerCase();
                         if (isDarkColor(color)) {
@@ -3435,12 +3531,15 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
             const sheet = document.createElement('div');
             sheet.id = 'childSheet_' + id;
             sheet.style.cssText = `width:${childW}px;border-radius:0.75rem;overflow:hidden;`;
+            const _popBg = getById('bgPicker')?.value || '#ffffff';
+            const _popText = isDarkColor(_popBg) ? '#f0f0f0' : '#1e293b';
+            const _popHeaderBg = isDarkColor(_popBg) ? '#1a1e2e' : '#ffffff';
             sheet.innerHTML = `
-                <div id="childPanelHeader_${id}" class="childPanelHeader" style="padding:0.5rem 0.75rem;background:#ffffff;display:flex;align-items:center;justify-content:space-between;">
+                <div id="childPanelHeader_${id}" class="childPanelHeader" style="padding:0.5rem 0.75rem;background:${_popHeaderBg};display:flex;align-items:center;justify-content:space-between;">
                     <span id="childPanelLabel_${id}" contenteditable="plaintext-only" spellcheck="false" style="font-size:0.7rem;font-weight:700;color:${_acCol};letter-spacing:0.05em;outline:none;min-width:2rem;cursor:text;" title="클릭하여 이름 편집">팝업 ${num}</span>
-                    <button onclick="deleteChildPanel('${id}')" style="width:1.25rem;height:1.25rem;border-radius:50%;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;cursor:pointer;font-size:0.65rem;font-weight:900;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0;" title="팝업 삭제">🗑</button>
+                    <button onclick="deleteChildPanel('${id}')" style="width:1.25rem;height:1.25rem;border-radius:50%;background:${isDarkColor(_popBg)?'#2a2e3e':'#f1f5f9'};color:${isDarkColor(_popBg)?'#94a3b8':'#64748b'};border:1px solid ${isDarkColor(_popBg)?'#374151':'#e2e8f0'};cursor:pointer;font-size:0.65rem;font-weight:900;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0;" title="팝업 삭제">🗑</button>
                 </div>
-                <div id="childArea_${id}" contenteditable="true" style="outline:none;min-height:5rem;padding:1.25rem 1.5rem;background:#ffffff;font-family:'Pretendard',sans-serif;font-size:clamp(0.875rem,1.702vw,1rem);line-height:1.8;color:#1e293b;word-break:keep-all;overflow-wrap:break-word;width:100%;box-sizing:border-box;"></div>`;
+                <div id="childArea_${id}" contenteditable="true" style="outline:none;min-height:5rem;padding:1.25rem 1.5rem;background:${_popBg};font-family:'Pretendard',sans-serif;font-size:clamp(0.875rem,1.702vw,1rem);line-height:1.8;color:${_popText};word-break:keep-all;overflow-wrap:break-word;width:100%;box-sizing:border-box;"></div>`;
             container.appendChild(sheet);
 
             const wrapper = getById('childPanelsWrapper');
@@ -4021,14 +4120,15 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
 
                 let onclickCode = '';
                 if (imgPath) {
+                    const _mw = parseInt(getById('pageWidthInput').value) || 840;
                     onclickCode = [
                         `var ex=document.getElementById('${layerId}');if(ex){ex.remove();return;}`,
                         `var d=document.createElement('div');d.id='${layerId}';`,
                         _overlayJs,
-                        `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:740px;margin:0 auto;';`,
-                        `var img=document.createElement('img');img.src='${imgPath}';img.style='display:block;width:100%;height:auto;border-radius:0.75rem;';`,
+                        `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:${_mw}px;margin:0 auto;';`,
+                        `var img=document.createElement('img');img.src='${imgPath}';img.style='display:block;width:100%;height:auto;';`,
                         `var close=document.createElement('button');close.innerHTML='\\u2715';`,
-                        `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${_acColor};color:#ffffff;border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';`,
+                        `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${_acColor};color:${isDarkColor(_acColor)?'#ffffff':'#000000'};border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';`,
                         `close.onclick=function(e){e.stopPropagation();d.remove();};`,
                         `wrap.appendChild(img);wrap.appendChild(close);d.appendChild(wrap);`,
                         `d.addEventListener('touchstart',function(e){if(e.target===d)d.remove();},{passive:true});`,
@@ -4053,16 +4153,17 @@ setTimeout(function(){var sy=Math.max(0,_br.top-_cr.top-60);d.scrollTop=sy;},50)
                         .replace(/"/g, '&quot;')
                         .replace(/\n/g, '');
 
+                    const _mw2 = parseInt(getById('pageWidthInput').value) || 840;
                     onclickCode = [
                         `var ex=document.getElementById('${layerId}');if(ex){ex.remove();return;}`,
                         `var d=document.createElement('div');d.id='${layerId}';`,
                         _overlayJs,
-                        `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:740px;margin:0 auto;';`,
+                        `var wrap=document.createElement('div');wrap.style='position:relative;width:100%;max-width:${_mw2}px;margin:0 auto;';`,
                         `var box=document.createElement('div');`,
-                        `box.style='background:#ffffff;border-radius:0.75rem;overflow-y:auto;padding:1.5rem;max-height:80vh;font-family:Pretendard,sans-serif;line-height:1.8;box-sizing:border-box;-webkit-overflow-scrolling:touch;color:#1e293b;box-shadow:0 4px 32px #0000002e;';`,
+                        `box.style='background-color:${getById('bgPicker')?.value || '#ffffff'};overflow-y:auto;max-height:80vh;box-sizing:border-box;-webkit-overflow-scrolling:touch;font-family:Pretendard,sans-serif;font-size:13px;line-height:1.8;';`,
                         `box.innerHTML='${escaped}';`,
                         `var close=document.createElement('button');close.innerHTML='\\u2715';`,
-                        `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${_acColor};color:#ffffff;border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';`,
+                        `close.style='position:absolute;top:-0.875rem;right:-0.875rem;background:${_acColor};color:${isDarkColor(_acColor)?'#ffffff':'#000000'};border:none;border-radius:50%;width:1.75rem;height:1.75rem;font-size:0.875rem;font-weight:900;cursor:pointer;z-index:10;display:inline-flex;align-items:center;justify-content:center;line-height:1;';`,
                         `close.onclick=function(e){e.stopPropagation();d.remove();};`,
                         `wrap.appendChild(box);wrap.appendChild(close);d.appendChild(wrap);`,
                         `d.addEventListener('touchstart',function(e){if(e.target===d)d.remove();},{passive:true});`,
@@ -4641,24 +4742,21 @@ Reference image provided: ${hasRef ? 'YES \u2014 replicate character, visual sty
                         accentColor='#'+[crr,crg,crb].map(x=>Math.max(0,Math.min(255,x)).toString(16).padStart(2,'0')).join('');
                     }
                 }
-                // accent 미설정이면 배경 기반 자동 선택
-                if (!accentColor) accentColor = isDark ? (bv>rv&&bv>gv ? '#00c8ff' : '#ffd700') : '#2563eb';
+                // accent 미설정이면 generatePalette로 세련된 색 자동 생성
+                if (!accentColor) {
+                    const autoPalette = generatePalette(bgColor);
+                    accentColor = autoPalette.accent;
+                }
 
-                // accent 채도 부스트 — 탁한 파스텔 방지 (최소 채도 0.72, 최대 0.95)
-                (function boostAccentSat() {
-                    const ar=parseInt(accentColor.slice(1,3),16),ag=parseInt(accentColor.slice(3,5),16),ab=parseInt(accentColor.slice(5,7),16);
-                    const r=ar/255,g=ag/255,b=ab/255;
-                    const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
-                    if(mx===mn) return; // 무채색은 건드리지 않음
-                    let hh=0,ss=0,ll=(mx+mn)/2;
-                    const d=mx-mn; ss=ll>0.5?d/(2-mx-mn):d/(mx+mn);
-                    switch(mx){case r:hh=(g-b)/d+(g<b?6:0);break;case g:hh=(b-r)/d+2;break;default:hh=(r-g)/d+4;}hh/=6;
-                    // 항상 부스트 적용 (0.72 이상도 더 선명하게)
-                    const newS=Math.min(Math.max(ss,0.85)*1.15,0.99);
-                    const q=ll<0.5?ll*(1+newS):ll+newS-ll*newS,p=2*ll-q;
-                    const h2r=(pt,qt,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return pt+(qt-pt)*6*t;if(t<1/2)return qt;if(t<2/3)return pt+(qt-pt)*(2/3-t)*6;return pt;};
-                    const nr=Math.round(h2r(p,q,hh+1/3)*255),ng=Math.round(h2r(p,q,hh)*255),nb=Math.round(h2r(p,q,hh-1/3)*255);
-                    accentColor='#'+[nr,ng,nb].map(x=>Math.max(0,Math.min(255,x)).toString(16).padStart(2,'0')).join('');
+                // 사용자 지정 accent: 밝기 보정만 (채도 부스트 제거 — 원색 방지)
+                // generatePalette 결과는 이미 채도 제한됨
+                (function clampAccentSat() {
+                    const [ah, as, al] = hexToHsl(accentColor);
+                    // 채도 0.45~0.70 범위로 제한 (원색 방지, 세련된 톤)
+                    const clampedS = Math.min(0.70, Math.max(0.45, as));
+                    if (Math.abs(clampedS - as) > 0.01) {
+                        accentColor = hslToHex(ah, clampedS, al);
+                    }
                 })();
                 // boostAccentSat 결과를 accentPicker UI에도 반영
                 (function syncPickerAfterBoost() {
@@ -4723,10 +4821,10 @@ Reference image provided: ${hasRef ? 'YES \u2014 replicate character, visual sty
 
 ## 패턴 A — 박스형 섹션 (기본)
 섹션이 카드 형태이고 화면 양쪽 여백이 필요할 때:
-- 컨텐츠 래퍼 se-div: padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px);padding-top:clamp(24px,3vw,48px);padding-bottom:clamp(24px,3vw,48px);
+- 컨텐츠 래퍼 se-div: padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px);padding-top:clamp(24px,3vw,48px);padding-bottom:clamp(24px,3vw,48px);
 - 섹션 se-div: 좌우 패딩 없음(이미 래퍼에서 처리), 상하 패딩만 사용
 
-<div class="se-div" style="background-color:${bgColor};padding-top:clamp(24px,3vw,48px);padding-bottom:clamp(24px,3vw,48px);padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px);display:block;width:100%;box-sizing:border-box;">
+<div class="se-div" style="background-color:${bgColor};padding-top:clamp(24px,3vw,48px);padding-bottom:clamp(24px,3vw,48px);padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px);display:block;width:100%;box-sizing:border-box;">
   <div class="se-div" style="background-color:${surfaceColor};border:1px solid ${borderColor};border-radius:0.875rem;overflow:hidden;padding:1.75rem 2rem;margin-bottom:1.5rem;">섹션내용</div>
   <div class="se-div" style="background-color:${surfaceColor};border:1px solid ${borderColor};border-radius:0.875rem;overflow:hidden;padding:1.75rem 2rem;margin-bottom:1.5rem;">섹션내용</div>
 </div>
@@ -4734,11 +4832,11 @@ Reference image provided: ${hasRef ? 'YES \u2014 replicate character, visual sty
 ## 패턴 B — 풀폭형 섹션
 섹션 배경색이 화면 전체 폭으로 채워져야 할 때 (톤온톤 배경색 구분):
 - 컨텐츠 래퍼 se-div: padding 없음(0)
-- 섹션 se-div: width:100%, 좌우 내부 여백은 padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px); 직접 보유
+- 섹션 se-div: width:100%, 좌우 내부 여백은 padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px); 직접 보유
 
 <div class="se-div" style="background-color:${bgColor};margin:0;padding:0;display:block;width:100%;box-sizing:border-box;">
-  <div class="se-div" style="background-color:${surfaceColor};width:100%;padding-top:2rem;padding-bottom:2rem;padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px);border-top:1px solid ${borderColor};">섹션내용</div>
-  <div class="se-div" style="background-color:${bgColor};width:100%;padding-top:2rem;padding-bottom:2rem;padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px);border-top:1px solid ${borderColor};">섹션내용</div>
+  <div class="se-div" style="background-color:${surfaceColor};width:100%;padding-top:2rem;padding-bottom:2rem;padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px);border-top:1px solid ${borderColor};">섹션내용</div>
+  <div class="se-div" style="background-color:${bgColor};width:100%;padding-top:2rem;padding-bottom:2rem;padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px);border-top:1px solid ${borderColor};">섹션내용</div>
 </div>
 
 ## 선택 기준
@@ -4767,7 +4865,7 @@ Reference image provided: ${hasRef ? 'YES \u2014 replicate character, visual sty
 
   <!-- 2번 블록: 컨텐츠 전체 래퍼 -->
   <div class="se-div" style="background-color:${bgColor};margin:0;padding:0;display:block;width:100%;box-sizing:border-box;">
-    <!-- 모든 섹션 se-div: padding-left:clamp(16px,3.472vw,50px);padding-right:clamp(16px,3.472vw,50px) 필수 -->
+    <!-- 모든 섹션 se-div: padding-left:clamp(16px,3.472vw,40px);padding-right:clamp(16px,3.472vw,40px) 필수 -->
   </div>
 
 </div>
@@ -5052,9 +5150,9 @@ ${injectedGuideline}`;
                 // 마크다운 이미지 참조 완전 제거 (![text](url), attachment: 형식 모두)
                 out = out.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
                 out = out.replace(/\(attachment:[^)]*\)/g, '');
-                // 외부 URL img 태그 완전 제거 (CORS 오류 및 렌더링 실패 방지)
-                // placeholder, 존재하지 않는 도메인 이미지 등
-                out = out.replace(/<img[^>]+src\s*=\s*["']https?:\/\/[^"']*["'][^>]*>/gi, '');
+                // 유효하지 않은 img 태그 전부 제거 — data: (base64) 외 모든 src 제거
+                // attachment: 스킴, https:// 외부 URL, 상대경로(char47.jpg 등) 모두 포함
+                out = out.replace(/<img[^>]+src\s*=\s*["'](?!data:)[^"']*["'][^>]*>/gi, '');
                 out = out.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (m, css) => {
                     const s = document.createElement('style'); s.textContent = css;
                     document.head.appendChild(s); return '';
@@ -5314,6 +5412,58 @@ ${injectedGuideline}`;
                         // accent 감지 후 popup-trigger 버튼 색상 동기화
                         fixPopupTriggerStyles(); protectAccentBars(); protectSectionCards();
                     }
+
+                    // ── 테이블 스타일 자동 통일 ──
+                    // AI가 생성한 테이블들의 스타일이 제각각일 때, 가장 많이 쓰인 스타일을 기준으로 전체 통일
+                    (function normalizeTableStyles() {
+                        // contentArea + 모든 팝업 childArea 대상
+                        const allAreas = [area];
+                        childPanels.forEach(p => { const ca = getById('childArea_' + p.id); if (ca) allAreas.push(ca); });
+                        const tables = [];
+                        allAreas.forEach(a => a.querySelectorAll('table').forEach(t => tables.push(t)));
+                        if (tables.length === 0) return;
+                        // 1) th border-bottom 색 수집 (가장 빈도 높은 것 = AI가 의도한 기준)
+                        const thBorderFreq = {}, thBgFreq = {}, thColorFreq = {}, tdBorderFreq = {};
+                        tables.forEach(tbl => {
+                            tbl.querySelectorAll('th').forEach(th => {
+                                const s = th.style;
+                                if (s.borderBottom) thBorderFreq[s.borderBottom] = (thBorderFreq[s.borderBottom]||0)+1;
+                                if (s.backgroundColor) thBgFreq[s.backgroundColor] = (thBgFreq[s.backgroundColor]||0)+1;
+                                if (s.color) thColorFreq[s.color] = (thColorFreq[s.color]||0)+1;
+                            });
+                            tbl.querySelectorAll('td').forEach(td => {
+                                const b = td.style.border || td.style.borderBottom || '';
+                                if (b) tdBorderFreq[b] = (tdBorderFreq[b]||0)+1;
+                            });
+                        });
+                        const topOf = obj => Object.entries(obj).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
+                        const stdThBorderBottom = topOf(thBorderFreq);
+                        const stdThBg = topOf(thBgFreq);
+                        const stdThColor = topOf(thColorFreq);
+                        const stdTdBorder = topOf(tdBorderFreq);
+                        // 2) 모든 테이블에 기준 스타일 일괄 적용
+                        tables.forEach(tbl => {
+                            tbl.style.borderCollapse = 'collapse';
+                            if (!tbl.style.width) tbl.style.width = '100%';
+                            if (!tbl.style.tableLayout) tbl.style.tableLayout = 'fixed';
+                            tbl.querySelectorAll('th').forEach(th => {
+                                if (stdThBorderBottom) th.style.borderBottom = stdThBorderBottom;
+                                if (stdThBg) th.style.backgroundColor = stdThBg;
+                                if (stdThColor) th.style.color = stdThColor;
+                                th.style.fontWeight = '700';
+                                th.style.textAlign = 'center';
+                            });
+                            tbl.querySelectorAll('td').forEach(td => {
+                                if (stdTdBorder) {
+                                    // border vs borderBottom 구분
+                                    if (stdTdBorder.includes('solid')) {
+                                        td.style.border = stdTdBorder;
+                                    }
+                                }
+                            });
+                        });
+                    })();
+
                     // 이미지 매칭은 위에서 이미 실행됨 (accent 감지 여부 무관)
                     showToast(detected ? '디자인 완료! 키컬러 ' + detected[0] + ' 감지됨' : '디자인 완료!');
                 }, 200);
